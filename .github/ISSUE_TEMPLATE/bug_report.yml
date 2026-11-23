@@ -1,0 +1,59 @@
+name: 问题反馈
+description: 报一个 bug 或提一个功能建议
+title: "[问题] "
+labels: ["需要复现"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！下面几项信息能帮我们快很多定位。
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么
+      description: 描述你期望的行为 vs 实际的行为
+      placeholder: |
+        期望：收到成熟作物后自动收获并补种
+        实际：收是收了，但补种总是挑最低价的种子
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 从头到尾怎么操作能复现
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: |
+        面板 → 后台 → 实时日志 里搜关键字（账号名、报错时间、动作名）贴出来。
+        如果是「账号没自动恢复」这类问题，请同时贴 **后台 → 账号日志** 的内容。
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / 部署方式
+      placeholder: 单机 exe / 源码运行 / Docker
+    validations:
+      required: false
+
+  - type: input
+    id: platform
+    attributes:
+      label: 运行环境
+      placeholder: Windows 11 / Node 20 / 微信 or QQ
+    validations:
+      required: false

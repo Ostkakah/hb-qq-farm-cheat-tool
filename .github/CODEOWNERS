@@ -1,0 +1,16 @@
+# 这些改动会自动请求 @Ostkakah 审核。
+# 语法：<路径模式> <账号>@<平台>
+# 详见 https://docs.github.com/articles/about-code-owners
+
+# 默认：所有文件都要维护者审核
+*                                       @Ostkakah
+
+# 运行时与协议相关改动影响面最大，单独点名
+/core/src/runtime/                      @Ostkakah
+/core/src/services/ranch-automation.js  @Ostkakah
+/core/src/services/planting-service.js  @Ostkakah
+/core/src/plugins/                     @Ostkakah
+
+# 面板与文档
+/web/                                  @Ostkakah
+/docs/                                 @Ostkakah
