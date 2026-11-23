@@ -17,6 +17,7 @@ const {
   getSeedLevel,
   getSeedImageBySeedId,
   isSeedItem,
+  isUnlistedSeedItem,
 } = require('../config/gameConfig');
 const { isAutomationOn, getAutomation } = require('../models/store');
 const { sendMsgAsync, networkEvents, getUserState } = require('../utils/network');
@@ -803,6 +804,7 @@ async function getBagSeeds() {
   const items = getBagItems(bag);
   const seedMap = new Map();
   const fallbackSeedIds = [];
+  const unlistedSeedIds = new Set();
 
   for (const item of items || []) {
     const id = toNum(item && item.id);
@@ -813,8 +815,14 @@ async function getBagSeeds() {
     const plant = getPlantBySeedId(id);
     const info = getItemById(id) || null;
     const interactionType = String(info && info.interaction_type || '').toLowerCase();
-    const seedLike = !!plant || isSeedItem(id) || interactionType === 'plant';
+    // 官方配置未收录但素材里有图的活动种子也要认出来，
+    // 否则会被当成「背包里没有种子」→ 白白去商店买种。
+    const unlistedSeed = !plant && !info && isUnlistedSeedItem(id);
+    const seedLike = !!plant || isSeedItem(id) || interactionType === 'plant' || unlistedSeed;
     if (!seedLike) continue;
+    if (unlistedSeed) {
+      unlistedSeedIds.add(id);
+    }
 
     if (!plant && fallbackSeedIds.length < 20) fallbackSeedIds.push(id);
 
@@ -827,13 +835,17 @@ async function getBagSeeds() {
 
     const existing = seedMap.get(id) || {
       seedId: id,
-      name,
+      name: unlistedSeed ? `种子${id}` : name,
       count: 0,
       requiredLevel,
-      rarity: Math.max(
-        plant && plant.special_fruit ? 3 : 0,
-        Number(info && info.rarity) || 0
-      ),
+      // 未收录种子的品质无从得知，按活动植物的下限（蓝）保守处理，
+      // 不让它跟已知的高品质种子抢优先级；等级限制同样按「不限制」处理。
+      rarity: unlistedSeed
+        ? 2
+        : Math.max(
+            plant && plant.special_fruit ? 3 : 0,
+            Number(info && info.rarity) || 0
+        ),
       plantExp: Math.max(0, Number(plant && plant.exp) || 0),
       plantingPriority: Math.max(0, Number(plant && plant.planting_priority) || 0),
       image: getSeedImageBySeedId(id) || getItemImageById(id),
@@ -846,6 +858,15 @@ async function getBagSeeds() {
   if (fallbackSeedIds.length > 0) {
     log('warehouse', `bag seed fallback detection: ${fallbackSeedIds.join(',')}`, {
       module: 'warehouse', event: 'bag_seed_detect', result: 'fallback', count: fallbackSeedIds.length,
+    });
+  }
+
+  if (unlistedSeedIds.size > 0) {
+    // 这些种子的官方配置（Plant / ItemInfo）还没同步到，只能按「未知品质」参与选种。
+    // 提示维护者去跑 sync-official-configs.js 补齐。
+    log('warehouse', `背包里有 ${unlistedSeedIds.size} 种官方配置未收录的种子（${[...unlistedSeedIds].join(',')}），已按种子参与选种；建议执行 sync-official-configs.js 补齐官方配置`, {
+      module: 'warehouse', event: 'bag_seed_detect', result: 'unlisted', count: unlistedSeedIds.size,
+      seedIds: [...unlistedSeedIds],
     });
   }
 

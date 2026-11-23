@@ -884,6 +884,26 @@ function isSeedItem(itemId) {
     return seedItemMap.has(Number(itemId) || 0);
 }
 
+/**
+ * 是否是「本地官方配置尚未收录、但仓库里确实存在」的种子。
+ *
+ * 活动限定品种（例：26038）常常只同步到了素材（种子图），
+ * 却还没进 Plant / ItemInfo 表。按配置过滤时这类种子会被当成「背包里没有种子」，
+ * 于是白白去商店买种 —— 背包里明明躺着一把紫色品质的活动种子。
+ *
+ * 判定条件（三者都要满足，避免把普通道具误判成种子）：
+ *   1. id 落在官方种子 id 区间 20000~29999（种子礼包是 1016xx，不在此区间）
+ *   2. Plant / ItemInfo 表里都查不到
+ *   3. 素材里能找到它的种子图
+ */
+function isUnlistedSeedItem(itemId) {
+    const id = Number(itemId) || 0;
+    if (id < 20000 || id > 29999) return false;
+    if (seedItemMap.has(id)) return false;
+    if (seedToPlant.has(id)) return false;
+    return !!getSeedImageBySeedId(id);
+}
+
 /** 获取种子价格 */
 function getSeedPrice(seedId) {
     const item = seedItemMap.get(Number(seedId) || 0);
@@ -1052,6 +1072,7 @@ module.exports = {
     getItemImageById,
     getLandUpgradeNeed,
     isSeedItem,
+    isUnlistedSeedItem,
     getSeedPrice,
     getFruitPrice,
     getFruitLayerBySeedId,
