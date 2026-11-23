@@ -30,6 +30,28 @@ function sha256(buffer) {
     return crypto.createHash('sha256').update(buffer).digest('hex');
 }
 
+/**
+ * 递归复制目录。
+ *
+ * 不用 fs.cpSync：打包成 pkg 可执行文件后，插件素材位于只读快照里，
+ * 而 fs.cpSync 内部使用带 \\?\ 长路径前缀的 lstat/opendir，
+ * pkg 的 fs 补丁不认这些路径，会以 ENOENT 失败。
+ * readdirSync + copyFileSync 是 pkg 明确支持的两个原语，
+ * 对普通源码目录和快照目录都能正常工作。
+ */
+function copyDirRecursive(src, dest) {
+    fs.mkdirSync(dest, { recursive: true });
+    for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+        const from = path.join(src, entry.name);
+        const to = path.join(dest, entry.name);
+        if (entry.isDirectory()) {
+            copyDirRecursive(from, to);
+        } else {
+            fs.copyFileSync(from, to);
+        }
+    }
+}
+
 function removeRouteLayers(app, layers) {
     const stack = app?._router?.stack;
     if (!Array.isArray(stack)) return;
@@ -439,7 +461,7 @@ function createPluginHost({
                 // backend/ 原样
                 const backendSrc = path.join(srcDir, 'backend');
                 if (fs.existsSync(backendSrc)) {
-                    fs.cpSync(backendSrc, path.join(installDir, 'backend'), { recursive: true, preserveTimestamps: true });
+                    copyDirRecursive(backendSrc, path.join(installDir, 'backend'));
                 }
 
                 // frontend/ 从 dist/ 扁平化（和 pack.js 的 zip 结构一致）
@@ -459,14 +481,14 @@ function createPluginHost({
                         if (feCss)   fs.copyFileSync(path.join(feDist, path.basename(feCss)),   path.join(feInstallDir, path.basename(feCss)));
                     } else {
                         // fallback：没有 dist/ 时整个复制（兼容没有构建的插件）
-                        fs.cpSync(frontendSrc, feInstallDir, { recursive: true, preserveTimestamps: true });
+                        copyDirRecursive(frontendSrc, feInstallDir);
                     }
                 }
 
                 // assets/ 原样
                 const assetsSrc = path.join(srcDir, 'assets');
                 if (fs.existsSync(assetsSrc)) {
-                    fs.cpSync(assetsSrc, path.join(installDir, 'assets'), { recursive: true, preserveTimestamps: true });
+                    copyDirRecursive(assetsSrc, path.join(installDir, 'assets'));
                 }
 
                 // 校验 manifest + 素材映射

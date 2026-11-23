@@ -175,7 +175,22 @@ async function save() {
   loading.value = true
   error.value = ''
   try {
-    const patch = { ...Object.fromEntries(options.value.filter(o => o.module === active.value).map(o => [o.key, draft.value[o.key]])), policy: { mode: 'simple', ...Object.fromEntries((policyKeys[active.value] || []).map(key => [key, policy.value[key]])) } }
+    // 保存时下发完整策略，而不是只发当前模块的字段：
+    // simple 模式在服务端会清空 buyRules / exchangeRules / canItemIds / feedFriendGids，
+    // 只发部分字段会让这些自定义清单被一并抹掉。
+    // 自定义过清单时保持 legacy（不覆盖用户配置）；从未自定义过则仍用 simple 的默认清单。
+    const hasCustomRules = (policy.value.buyRules?.length || 0) > 0
+      || (policy.value.exchangeRules?.length || 0) > 0
+      || (policy.value.canItemIds?.length || 0) > 0
+      || (policy.value.feedFriendGids?.length || 0) > 0;
+    const patch = {
+      ...Object.fromEntries(options.value.filter(o => o.module === active.value).map(o => [o.key, draft.value[o.key]])),
+      policy: {
+        ...policy.value,
+        mode: hasCustomRules ? 'legacy' : 'simple',
+        ...Object.fromEntries((policyKeys[active.value] || []).map(key => [key, policy.value[key]])),
+      },
+    }
     const res = await api.post('/api/ranch/settings', patch, { headers: { 'x-account-id': account.currentAccountId } })
     if (!res.data.ok)
       throw new Error(res.data.error || '保存失败')

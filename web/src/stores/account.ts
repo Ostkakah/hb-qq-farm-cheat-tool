@@ -18,6 +18,9 @@ export interface Account {
   username?: string
   platform?: string
   running?: boolean
+  /** 手动暂停中：机器人不登录该账号，到期后自动恢复自动化 */
+  paused?: boolean
+  pausedRemainingSec?: number
   level?: number
   exp?: number
   // Add other fields as discovered

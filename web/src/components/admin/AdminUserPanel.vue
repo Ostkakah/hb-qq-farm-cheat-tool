@@ -2,6 +2,7 @@
 import type { UserCard } from '@/stores/user'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
+import { DEFAULT_ACCOUNT_LIMIT } from '@/constants/account-limit'
 import { formatTimeDuration } from '@/stores/user'
 
 interface UserInfo {
@@ -207,7 +208,7 @@ function formatUserCardDate(timestamp: number | null) {
                   class="inline-flex rounded-full px-2 text-xs font-semibold leading-5"
                   :class="user.role === 'admin' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' : 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200'"
                 >
-                  {{ user.role === 'admin' ? '无限制' : `${user.accountLimit || 2}个` }}
+                  {{ user.role === 'admin' ? '无限制' : `${user.accountLimit ?? DEFAULT_ACCOUNT_LIMIT}个` }}
                 </span>
               </td>
               <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-900 dark:text-white">

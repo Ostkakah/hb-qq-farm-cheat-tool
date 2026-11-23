@@ -32,6 +32,26 @@ const props = defineProps<{
 const accountStore = useAccountStore()
 const { visibleAccounts: filteredAccounts } = storeToRefs(accountStore)
 
+/**
+ * 账号运行状态：
+ * - 运行中：worker 存活
+ * - 已暂停：手动停止后进入 30 分钟暂停，机器人不登录该账号，到期自动恢复
+ * - 已停止：worker 未运行
+ */
+function accountStateLabel(acc: any) {
+  if (acc?.paused) {
+    const minutes = Math.max(1, Math.ceil(Number(acc.pausedRemainingSec || 0) / 60))
+    return `已暂停(${minutes}分)`
+  }
+  return acc?.running ? '运行中' : '已停止'
+}
+
+function accountStateDotClass(acc: any) {
+  if (acc?.paused)
+    return 'bg-amber-500'
+  return acc?.running ? 'bg-green-500' : 'bg-gray-300'
+}
+
 const hasFilteredOutAccounts = computed(() =>
   !props.showAllAccounts
   && props.userIsAdmin
@@ -197,8 +217,8 @@ function accountAvatar(acc: any) {
           </div>
           <div class="flex items-center justify-end gap-2 sm:flex-col sm:items-end">
             <span class="flex items-center gap-1 text-xs text-gray-500 sm:hidden">
-              <div class="h-2 w-2 rounded-full" :class="acc.running ? 'bg-green-500' : 'bg-gray-300'" />
-              {{ acc.running ? '运行中' : '已停止' }}
+              <div class="h-2 w-2 rounded-full" :class="accountStateDotClass(acc)" />
+              {{ accountStateLabel(acc) }}
             </span>
             <BaseButton
               variant="secondary"
@@ -218,8 +238,8 @@ function accountAvatar(acc: any) {
         <div class="mt-3 flex items-center justify-between border-t border-gray-100 pt-3 sm:mt-4 dark:border-gray-700 sm:pt-4">
           <div class="hidden items-center gap-2 text-sm text-gray-500 sm:flex">
             <span class="flex items-center gap-1">
-              <div class="h-2 w-2 rounded-full" :class="acc.running ? 'bg-green-500' : 'bg-gray-300'" />
-              {{ acc.running ? '运行中' : '已停止' }}
+              <div class="h-2 w-2 rounded-full" :class="accountStateDotClass(acc)" />
+              {{ accountStateLabel(acc) }}
             </span>
           </div>
 

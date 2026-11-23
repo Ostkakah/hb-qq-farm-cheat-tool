@@ -2,6 +2,7 @@ import { useIntervalFn } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { DEFAULT_ACCOUNT_LIMIT } from '@/constants/account-limit'
 import { useAccountStore } from '@/stores/account'
 import { useUserStore } from '@/stores/user'
 
@@ -27,7 +28,7 @@ export function useAccountSettings(showAlert: (message: string, type?: AlertType
   const quotaLimit = computed(() => {
     const limit = userStore.accountLimit
     if (limit === undefined || limit === null)
-      return 3
+      return DEFAULT_ACCOUNT_LIMIT
     return limit
   })
   const isOverQuota = computed(() => {

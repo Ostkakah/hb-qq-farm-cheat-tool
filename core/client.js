@@ -65,9 +65,14 @@ async function bootstrap() {
         },
     });
 
+    // 启动时自动拉起所有账号：无人值守的农场机器人重启后应自行恢复收菜。
+    // 微信账号会先走一次 Code 刷新再启动（见 runtime-engine.startAllAccounts）。
+    // 需要保持上游「重启后手动点启动」的行为时设 FARM_AUTO_START_ACCOUNTS=false。
+    const autoStartAccounts = process.env.FARM_AUTO_START_ACCOUNTS !== 'false';
+
     runtimeEngine.start({
         startAdminServer: true,
-        autoStartAccounts: false,
+        autoStartAccounts,
     }).catch((err) => {
         mainLogger.error('runtime bootstrap failed', {
             error: err && err.message ? err.message : String(err),

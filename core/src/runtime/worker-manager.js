@@ -24,8 +24,11 @@ function createWorkerManager(deps) {
         addOrUpdateAccount,
         getAccounts,
         deleteAccount,
+        store,
         scheduleAutoRelogin,
         refreshAccountCode,
+        stopAutoCodeRefresh,
+        isReloginPending,
         updateSystemClientVersion,
         onStatusSync,
         onWorkerLog
@@ -549,15 +552,34 @@ function createWorkerManager(deps) {
                     'offline_reminder', `账号 ${wrk.name} 登录失效，已发送下线提醒`);
                 addAccountLog('ws_400', `账号 ${  wrk.name  } 登录失效，请更新 Code`,
                     accountId, wrk.name);
-                if (typeof refreshAccountCode === 'function' && !credentialRefreshes.has(accountId)) {
-                    const task = Promise.resolve(refreshAccountCode(accountId, 'ws_400'))
-                        .then(ok => {
-                            if (!ok && typeof scheduleAutoRelogin === 'function') {
-                                scheduleAutoRelogin(accountId, 'ws_400_refresh_failed');
-                            }
-                        })
-                        .finally(() => credentialRefreshes.delete(accountId));
-                    credentialRefreshes.set(accountId, task);
+                if (typeof refreshAccountCode === 'function') {
+                    const pending = credentialRefreshes.get(accountId);
+                    if (pending) {
+                        // 已有刷新在飞：不能直接跳过，否则这条恢复链就断了，
+                        // 账号会一直离线到进程重启。改为挂到在飞任务上，
+                        // 它失败时照样排退避重登。
+                        Promise.resolve(pending)
+                            .then((ok) => {
+                                if (!ok && typeof scheduleAutoRelogin === 'function') {
+                                    scheduleAutoRelogin(accountId, 'ws_400_refresh_failed');
+                                }
+                            })
+                            .catch(() => {
+                                if (typeof scheduleAutoRelogin === 'function') {
+                                    scheduleAutoRelogin(accountId, 'ws_400_refresh_failed');
+                                }
+                            });
+                    }
+                    else {
+                        const task = Promise.resolve(refreshAccountCode(accountId, 'ws_400'))
+                            .then(ok => {
+                                if (!ok && typeof scheduleAutoRelogin === 'function') {
+                                    scheduleAutoRelogin(accountId, 'ws_400_refresh_failed');
+                                }
+                            })
+                            .finally(() => credentialRefreshes.delete(accountId));
+                        credentialRefreshes.set(accountId, task);
+                    }
                 }
             }
         } else if (msg.type === 'watchdog_pong') {
@@ -576,6 +598,9 @@ function createWorkerManager(deps) {
                 accountId, wrk.name, { reason });
 
             stopWorker(accountId);
+            // 取消该号的 Code 刷新定时任务：踢线后由自动重登统一接管，
+            // 否则 60 分钟的定时刷新会在重登之外再重启一次账号。
+            if (typeof stopAutoCodeRefresh === 'function') stopAutoCodeRefresh(accountId);
             if (typeof scheduleAutoRelogin === 'function') {
                 scheduleAutoRelogin(accountId, `kickout:${reason}`);
             }
@@ -592,6 +617,7 @@ function createWorkerManager(deps) {
                 accountId, wrk.name, { reason });
 
             stopWorker(accountId);
+            if (typeof stopAutoCodeRefresh === 'function') stopAutoCodeRefresh(accountId);
             if (typeof scheduleAutoRelogin === 'function') {
                 scheduleAutoRelogin(accountId, `ws_reconnect_failed:${reason}`);
             }
@@ -692,6 +718,91 @@ function createWorkerManager(deps) {
     };
     persistInactiveActivities();
     scheduler.setIntervalTask('inactive_activity_config', WATCHDOG_PING_MS, persistInactiveActivities);
+
+    /**
+     * 离线兜底巡检。
+     *
+     * 账号掉线的原因很多（被顶号、Code 失效、连接被拒、worker 意外退出……），
+     * 每条路径各自带一套恢复逻辑，只要有一条断了账号就会一直离线到进程重启。
+     * 这里定期扫一遍：不在运行、又没被手动暂停、且开了自动刷新的账号，
+     * 一律排一次退避重登，作为最后一道保险。
+     *
+     * 手动暂停（pausedUntil）优先于一切：暂停期间机器人不登录该账号。
+     */
+    const OFFLINE_SWEEP_INTERVAL_MS = Math.max(
+        10,
+        Number(process.env.FARM_OFFLINE_SWEEP_INTERVAL_MS) || 60 * 1000,
+    );
+    const OFFLINE_SWEEP_GRACE_MS = Math.max(
+        0,
+        Number(process.env.FARM_OFFLINE_SWEEP_GRACE_MS) || 90 * 1000,
+    );
+    const OFFLINE_SWEEP_REJECT_THROTTLE_MS = 5 * 60 * 1000;
+    const offlineSince = new Map();
+    const offlineRejectedAt = new Map();
+
+    scheduler.setIntervalTask('offline_account_sweep', OFFLINE_SWEEP_INTERVAL_MS, () => {
+        const now = Date.now();
+        const accounts = (typeof getAccounts === 'function' ? getAccounts() : {}).accounts || [];
+        for (const account of accounts) {
+            const id = String(account.id || '');
+            if (!id) continue;
+            const wrk = workers[id];
+            if (wrk && !wrk.stopping) {
+                offlineSince.delete(id);
+                offlineRejectedAt.delete(id);
+                continue;
+            }
+            // 手动暂停中：机器人不登录这个号，30 分钟后由 resumeAccount 恢复
+            const pausedUntil = Number(account.pausedUntil) || 0;
+            if (pausedUntil > now) continue;
+            // 没开自动刷新就没有可用的凭证刷新通道，交给用户手动处理
+            const refreshCfg = store && typeof store.getAutoCodeRefresh === 'function'
+                ? store.getAutoCodeRefresh(id)
+                : require('../models/store').getAutoCodeRefresh(id);
+            if (!refreshCfg || refreshCfg.enabled !== true) continue;
+            // 只支持微信扫码渠道的凭据刷新；QQ 账号不在这里自动恢复
+            if (account.platform !== 'wx') continue;
+
+            if (!offlineSince.has(id)) {
+                offlineSince.set(id, now);
+                continue;
+            }
+            // 刚掉线先给恢复逻辑留出时间，别抢在踢线重登前面再排一次
+            if (now - offlineSince.get(id) < OFFLINE_SWEEP_GRACE_MS) continue;
+            if (typeof scheduleAutoRelogin !== 'function') continue;
+            // 已经有重登在排队：绝不能再排一次，倒计时会被重置掉导致永远不触发
+            if (typeof isReloginPending === 'function' && isReloginPending(id)) continue;
+
+            // 注意：不要重置 offlineSince。保持原始离线起点，
+            // 下次巡检才能继续判定「仍未恢复」并再次排班。
+            const scheduled = scheduleAutoRelogin(id, 'offline_sweep');
+            if (scheduled) {
+                offlineRejectedAt.delete(id);
+                log('系统', `账号 ${account.name} 离线超时，已安排自动恢复`, {
+                    accountId: id,
+                    accountName: account.name,
+                    event: '离线兜底巡检',
+                    result: 'schedule_relogin',
+                });
+            }
+            else {
+                // 排班被拒（没开自动刷新 / 凭据缺失）时如实说，
+                // 不要谎报「已安排自动恢复」——那会把真实原因藏起来。
+                // 拒绝原因通常是持续性的，节流一下免得每 2 分钟刷一次日志。
+                const lastRejected = Number(offlineRejectedAt.get(id)) || 0;
+                if (now - lastRejected >= OFFLINE_SWEEP_REJECT_THROTTLE_MS) {
+                    offlineRejectedAt.set(id, now);
+                    log('系统', `账号 ${account.name} 离线超时，自动恢复未能安排`, {
+                        accountId: id,
+                        accountName: account.name,
+                        event: '离线兜底巡检',
+                        result: 'schedule_relogin_rejected',
+                    });
+                }
+            }
+        }
+    }, { preventOverlap: true });
 
     scheduler.setIntervalTask('watchdog_tick', WATCHDOG_PING_MS, () => {
         const now = Date.now();

@@ -53,6 +53,7 @@
       "src/proto/**/*",
       "src/utils/*.wasm",
       "src/__bolt_manifest.json",
+      "plugins/**/*",
       "share.txt"
     ]
   }

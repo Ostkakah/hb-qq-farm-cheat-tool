@@ -181,6 +181,26 @@ function isAccountOnline(acc?: Account | null) {
   return true
 }
 
+/** 手动暂停中：机器人不登录该账号，到期后自动恢复自动化 */
+function isAccountPaused(acc?: Account | null) {
+  return !!acc?.paused
+}
+
+/** 状态圆点颜色：在线=绿，暂停=琥珀，离线=红 */
+function accountStateDotClass(acc?: Account | null) {
+  if (isAccountPaused(acc))
+    return 'bg-amber-500'
+  return isAccountOnline(acc) ? 'bg-green-500' : 'bg-red-500'
+}
+
+function accountStateTitle(acc?: Account | null) {
+  if (isAccountPaused(acc)) {
+    const minutes = Math.max(1, Math.ceil(Number(acc?.pausedRemainingSec || 0) / 60))
+    return `已暂停，${minutes} 分钟后自动恢复自动化`
+  }
+  return isAccountOnline(acc) ? '在线' : '离线'
+}
+
 async function loadCareer() {
   const accountId = cleanText(currentAccount.value?.id)
   if (!accountId)
@@ -400,8 +420,8 @@ async function handleLogout() {
                   </span>
                   <span
                     class="absolute -right-0.5 -bottom-0.5 h-2 w-2 rounded-full ring-2 ring-white dark:ring-gray-900"
-                    :class="isAccountOnline(acc) ? 'bg-green-500' : 'bg-red-500'"
-                    :title="isAccountOnline(acc) ? '在线' : '离线'"
+                    :class="accountStateDotClass(acc)"
+                    :title="accountStateTitle(acc)"
                   />
                 </div>
                 <div class="min-w-0 flex flex-1 flex-col items-start">

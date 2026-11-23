@@ -5,8 +5,10 @@ import { RouterView } from 'vue-router'
 import ToastContainer from '@/components/ToastContainer.vue'
 import { startViewportGlass, stopViewportGlass } from '@/composables/viewport-glass'
 import { useAppStore } from '@/stores/app'
+import { useUserStore } from '@/stores/user'
 
 const appStore = useAppStore()
+const userStore = useUserStore()
 
 // 立即应用保存的主题（在组件挂载前）
 const savedTheme = localStorage.getItem('ui_theme') as Theme
@@ -63,6 +65,10 @@ let repaintTimer: number | null = null
 
 onMounted(() => {
   appStore.fetchTheme()
+  // 刷新一次用户信息：账号额度、卡密状态可能已被管理员改过，
+  // localStorage 里的旧值会一直生效，导致「添加账号」按钮莫名被禁用。
+  if (userStore.isLoggedIn)
+    void userStore.fetchUserInfo()
   startViewportGlass()
   document.addEventListener('visibilitychange', handleVisibilityChange)
   repaintTimer = window.setInterval(() => {

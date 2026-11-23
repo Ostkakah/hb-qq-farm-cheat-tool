@@ -197,10 +197,28 @@ async function runRanchExtraAutomation(ctx) {
             const inventory = (ranch.availableCubs || []).filter(c => BigInt(c.count || 0) > 0n);
             const useBag = bagPriority && inventory.length > 0;
             const strategy = bagPriority ? p.husbandryFallbackStrategy : p.husbandryStrategy;
-            const shop = p.mode === 'simple' && !useBag ? await service.getResource('shop') : null;
-            const candidates = useBag ? inventory : shop ? purchasableCubs(ranch, shop, goodsMap) : ranch.availableCubs;
-            const cub = p.mode === 'simple' ? selectCub(candidates, useBag ? 'level' : strategy, !useBag && strategy === 'task' ? (await service.getResource('tasks')).tasks : []) : p.cubItemIds.map(id => ranch.availableCubs.find(c => String(c.itemId) === id)).find(Boolean);
-            if (cub) await perform({ action: 'place', ranchId: ranch.ranchInstId, itemId: cub.itemId, ...(useBag ? { source: 'bag' } : {}) });
+            if (p.mode === 'simple') {
+                // simple 模式语义不变：优先从商店买（BuyGoods auto_add），仓库优先时才用背包。
+                const shop = !useBag ? await service.getResource('shop') : null;
+                const candidates = useBag ? inventory : shop ? purchasableCubs(ranch, shop, goodsMap) : inventory;
+                const cub = selectCub(candidates, useBag ? 'level' : strategy, !useBag && strategy === 'task' ? (await service.getResource('tasks')).tasks : []);
+                if (cub) await perform({ action: 'place', ranchId: ranch.ranchInstId, itemId: cub.itemId, ...(useBag ? { source: 'bag' } : {}) });
+                continue;
+            }
+            // legacy 模式：cubItemIds 是「允许养哪些品种」的白名单，
+            // 具体养哪一档由代码按「当前牧场等级养得起的最高级」决定 ———
+            // 否则白名单里排最前的低等级动物会一直占着栏位（例：Lv3 的鸭）。
+            // placeSeq 参与动作去重身份：栏位数量每次都在变，否则同一栏位同一品种
+            // 只会被放一次，栏位永远填不满。
+            const shop = await service.getResource('shop');
+            const purchasable = purchasableCubs(ranch, shop, goodsMap);
+            const allowed = new Set(p.cubItemIds.map(String));
+            // 白名单是「允许养哪些品种」；在白名单里挑当前牧场等级养得起的最高级那档。
+            // 白名单为空 → 这一轮不放（place 的策略校验同样要求 itemId 在白名单里）。
+            const pool = purchasable.filter(c => allowed.has(String(c.itemId)));
+            const cub = [...pool]
+                .sort((a, b) => Number(b.requiredLevel || 0) - Number(a.requiredLevel || 0))[0];
+            if (cub) await perform({ action: 'place', ranchId: ranch.ranchInstId, itemId: cub.itemId, placeSeq: Number(ranch.animalCount) || 0 });
         }
     });
     if (enabled('autoFeedAnimal')) await safely(async () => {

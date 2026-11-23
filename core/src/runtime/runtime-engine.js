@@ -115,6 +115,8 @@ function createRuntimeEngine(options = {}) {
         deleteAccount: store.deleteAccount,
         scheduleAutoRelogin: autoCodeRefresh.scheduleRelogin,
         refreshAccountCode: autoCodeRefresh.refreshAccountCode,
+        stopAutoCodeRefresh: autoCodeRefresh.stopAccount,
+        isReloginPending: autoCodeRefresh.isReloginPending,
         updateSystemClientVersion: (clientVersion, platform = 'qq') => {
             const value = String(clientVersion || '').trim();
             const current = store.getSystemConfig() || store.DEFAULT_SYSTEM_CONFIG || {};
@@ -162,7 +164,10 @@ function createRuntimeEngine(options = {}) {
         restartWorker,
         getResourceStatus,
         scheduleAutoCodeRefresh: autoCodeRefresh.scheduleAccount,
-        refreshAccountCode: autoCodeRefresh.refreshAccountCode
+        refreshAccountCode: autoCodeRefresh.refreshAccountCode,
+        pauseAutoCodeRefresh: autoCodeRefresh.pauseAccount,
+        stopAutoCodeRefresh: autoCodeRefresh.stopAccount,
+        clearAutoCodePause: autoCodeRefresh.clearPause
     };
     const dataProvider = createDataProvider(dataProviderDeps);
 
@@ -200,6 +205,13 @@ function createRuntimeEngine(options = {}) {
             log('系统', `发现 ${  accounts.length  } 个账号，正在启动...`);
             let launchedInBatch = 0;
             for (const acc of accounts) {
+                // 手动暂停中的账号不自动拉起，并按剩余暂停时间接续自动恢复。
+                // 暂停期间机器人不登录该账号，用户可以在手机上安心玩农场。
+                const pausedRemaining = autoCodeRefresh.getPausedRemainingMs(acc.id);
+                if (pausedRemaining > 0) {
+                    autoCodeRefresh.scheduleResume(acc.id, pausedRemaining);
+                    continue;
+                }
                 // 为移植前已扫码保存凭证的微信账号执行一次默认策略迁移。
                 if (acc.platform === 'wx' && acc.loginBuffer && acc.wxDefaultsApplied !== true) {
                     const currentRefresh = store.getAutoCodeRefresh(acc.id);

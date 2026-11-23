@@ -26,7 +26,10 @@ function createDataProvider(deps) {
         restartWorker,
         getResourceStatus,
         scheduleAutoCodeRefresh,
-        refreshAccountCode
+        refreshAccountCode,
+        pauseAutoCodeRefresh,
+        stopAutoCodeRefresh,
+        clearAutoCodePause
     } = deps;
 
     /** 获取账号列表 */
@@ -413,6 +416,10 @@ function createDataProvider(deps) {
                 const worker = workers[acc.id];
                 acc.running = !!worker;
                 acc.hasWxCredential = !!acc.loginBuffer;
+                // 手动暂停状态：暂停期间机器人不登录该账号，到期后自动恢复自动化。
+                const pausedUntil = Number(acc.pausedUntil) || 0;
+                acc.paused = pausedUntil > Date.now();
+                acc.pausedRemainingSec = acc.paused ? Math.ceil((pausedUntil - Date.now()) / 1000) : 0;
                 delete acc.loginBuffer;
                 delete acc.refreshtoken;
                 delete acc.accesstoken;
@@ -431,6 +438,9 @@ function createDataProvider(deps) {
             const id = resolveAccountId(ref);
             const account = findAccount(id || ref);
             if (!account) return false;
+            // 手动启动 = 结束暂停状态。清掉暂停标记后定时刷新才会重新挂上，
+            // 否则手动启动的账号会缺少 Code 刷新，且 30 分钟后的恢复任务还会重复重启它。
+            if (typeof clearAutoCodePause === 'function') clearAutoCodePause(account.id);
             if (typeof scheduleAutoCodeRefresh === 'function') scheduleAutoCodeRefresh(account.id);
             if (account.platform === 'wx' && account.loginBuffer && typeof refreshAccountCode === 'function') {
                 const refreshed = await refreshAccountCode(account.id, 'manual_start');
@@ -440,11 +450,20 @@ function createDataProvider(deps) {
             return true;
         },
 
-        stopAccount: (ref) => {
+        stopAccount: (ref, options = {}) => {
             const id = resolveAccountId(ref);
             const account = findAccount(id || ref);
             if (!account) return false;
             if (id) stopWorker(id);
+            // 手动停止 = 暂停：取消该号的 Code 刷新 / 凭据保活 / 待重登任务，
+            // 并在 30 分钟后自动重新拉起恢复自动化。暂停期间机器人不登录该账号，
+            // 也就不会把正在用手机玩农场的用户顶下线。
+            // 删除账号时传 { resume: false }：彻底取消定时任务，不安排恢复。
+            if (options.resume === false) {
+                if (typeof stopAutoCodeRefresh === 'function') stopAutoCodeRefresh(id);
+            } else if (typeof pauseAutoCodeRefresh === 'function') {
+                pauseAutoCodeRefresh(id);
+            }
             return true;
         },
 

@@ -44,13 +44,21 @@ interface CaptureFlowState {
   }
 }
 
-const activeTab = ref<'wx' | 'qq' | 'capture' | 'manual'>('manual')
+const activeTab = ref<'wx' | 'qq' | 'qqScan' | 'capture' | 'manual'>('manual')
 const loading = ref(false)
 const wxChecking = ref(false)
 const errorMessage = ref('')
 const wxAccountName = ref('')
 const qqEnabled = ref(false)
 const qqAccountName = ref('')
+// 官方 QQ 扫码（q.qq.com IDE 扫码换 Code）：不依赖 NapCat，单机版也能用
+const qqScanImage = ref('')
+const qqScanCode = ref('')
+const qqScanStatus = ref('点击获取二维码')
+const qqScanError = ref('')
+const qqScanLoading = ref(false)
+const qqScanCreatedAt = ref(0)
+const qqScanAccountName = ref('')
 const qqTaskId = ref('')
 const qqQrImage = ref('')
 const qqStatus = ref('点击获取二维码')
@@ -226,6 +234,82 @@ async function loadQqCapability() {
     qqEnabled.value = data?.ok && data.data?.enabled === true
   }
   catch { qqEnabled.value = false }
+}
+
+// ── 官方 QQ 扫码（不需要 NapCat）─────────────────────────────
+// 流程：POST /api/qr/create 取二维码 → 轮询 /api/qr/check → 拿到农场 Code 后自动添加账号
+const { pause: stopQqScanCheck, resume: startQqScanCheck } = useIntervalFn(async () => {
+  if (activeTab.value !== 'qqScan' || !qqScanCode.value || qqScanLoading.value)
+    return
+  if (qqScanCreatedAt.value && Date.now() - qqScanCreatedAt.value >= QQ_QR_AUTO_REFRESH_MS) {
+    await startQqScanLogin()
+    return
+  }
+  try {
+    const { data } = await api.post('/api/qr/check', { code: qqScanCode.value }, { timeout: 20000, skipErrorToast: true } as any)
+    if (!data?.ok)
+      throw new Error(data?.error || '查询扫码状态失败')
+    const status = data.data?.status
+    if (status === 'OK') {
+      stopQqScanCheck()
+      qqScanLoading.value = true
+      qqScanStatus.value = '扫码成功，正在获取农场 Code…'
+      const authCode = data.data?.code
+      if (!authCode)
+        throw new Error('获取农场 Code 失败')
+      qqScanCode.value = ''
+      await addAccount({
+        id: props.editData?.id,
+        name: props.editData?.name || qqScanAccountName.value.trim() || data.data?.nickname || `QQ账号${data.data?.uin || Date.now()}`,
+        code: authCode,
+        platform: 'qq',
+        loginType: 'qq_qr',
+        qq: data.data?.uin || '',
+        uin: data.data?.uin || '',
+        avatar: data.data?.avatar || '',
+        startAfterSave: true,
+      })
+    }
+    else if (status === 'Used') {
+      stopQqScanCheck()
+      qqScanError.value = '二维码已被使用，请刷新后重试'
+    }
+    else if (status === 'Error') {
+      stopQqScanCheck()
+      qqScanError.value = data.data?.error || '扫码失败，请刷新二维码'
+    }
+    else {
+      qqScanStatus.value = '请使用 QQ 扫描二维码'
+    }
+  }
+  catch (e: any) {
+    stopQqScanCheck()
+    qqScanError.value = e.response?.data?.error || e.message || 'QQ 扫码登录失败'
+  }
+  finally { qqScanLoading.value = false }
+}, 2000, { immediate: false })
+
+async function startQqScanLogin() {
+  if (qqScanLoading.value)
+    return
+  qqScanLoading.value = true
+  qqScanError.value = ''
+  stopQqScanCheck()
+  qqScanCode.value = ''
+  try {
+    const { data } = await api.post('/api/qr/create', {}, { timeout: 30000, skipErrorToast: true } as any)
+    if (!data?.ok || !data.data?.code || !data.data?.image)
+      throw new Error(data?.error || '获取 QQ 二维码失败')
+    qqScanCode.value = data.data.code
+    qqScanImage.value = data.data.image
+    qqScanCreatedAt.value = Date.now()
+    qqScanStatus.value = '请使用 QQ 扫描二维码'
+    startQqScanCheck()
+  }
+  catch (e: any) {
+    qqScanError.value = e.response?.data?.error || e.message || '获取 QQ 二维码失败'
+  }
+  finally { qqScanLoading.value = false }
 }
 
 async function cancelQqTask() {
@@ -488,6 +572,7 @@ const wxQrImageSrc = computed(() => {
 function close() {
   stopWxCheck()
   void cancelQqTask()
+  stopQqScanCheck()
   stopCaptureCheck()
   void cancelCaptureSession()
   wxLoginStore.resetState()
@@ -540,6 +625,8 @@ watch(activeTab, (tab) => {
     loadWxQRCode()
   if (tab === 'qq' && !qqTaskId.value)
     void startQqLogin()
+  if (tab === 'qqScan' && !qqScanImage.value)
+    void startQqScanLogin()
   if (tab !== 'qq')
     void cancelQqTask()
   if (tab !== 'capture')
@@ -571,13 +658,21 @@ useModalFocus(() => props.show, modalSurface, close)
 
         <div class="mb-4 flex border-b" :style="{ borderColor: 'color-mix(in srgb, var(--theme-text) 10%, transparent)' }">
           <button
+            class="flex-1 py-2 text-center text-sm font-medium transition-colors"
+            :class="activeTab === 'qqScan' ? 'border-b-2' : 'opacity-60'"
+            :style="{ color: activeTab === 'qqScan' ? 'var(--theme-primary)' : 'var(--theme-text)', borderColor: 'var(--theme-primary)' }"
+            @click="activeTab = 'qqScan'"
+          >
+            QQ 扫码
+          </button>
+          <button
             v-if="qqEnabled"
             class="flex-1 py-2 text-center text-sm font-medium transition-colors"
             :class="activeTab === 'qq' ? 'border-b-2' : 'opacity-60'"
             :style="{ color: activeTab === 'qq' ? 'var(--theme-primary)' : 'var(--theme-text)', borderColor: 'var(--theme-primary)' }"
             @click="activeTab = 'qq'"
           >
-            QQ 扫码
+            QQ·NapCat
           </button>
           <button
             class="flex-1 py-2 text-center text-sm font-medium transition-colors"
@@ -613,6 +708,38 @@ useModalFocus(() => props.show, modalSurface, close)
           >
             抓包登录
           </button>
+        </div>
+
+        <div v-if="activeTab === 'qqScan'" class="space-y-4">
+          <BaseInput v-model="qqScanAccountName" label="账号备注（可选）" placeholder="留空则使用 QQ 昵称" />
+          <div class="flex flex-col items-center justify-center py-4 space-y-4">
+            <div
+              v-if="qqScanImage"
+              class="border rounded-lg bg-white p-2 transition-opacity"
+              :class="qqScanLoading ? 'cursor-wait opacity-60' : 'cursor-pointer hover:opacity-80'"
+              title="点击刷新二维码"
+              role="button"
+              tabindex="0"
+              @click="!qqScanLoading && startQqScanLogin()"
+              @keydown.enter.prevent="!qqScanLoading && startQqScanLogin()"
+              @keydown.space.prevent="!qqScanLoading && startQqScanLogin()"
+            >
+              <img :src="qqScanImage" class="h-48 w-48">
+            </div>
+            <div v-else class="h-48 w-48 flex items-center justify-center rounded-lg" :style="{ background: 'color-mix(in srgb, var(--theme-bg) 90%, var(--theme-text))' }">
+              <div v-if="qqScanLoading" i-svg-spinners-90-ring-with-bg class="text-3xl" :style="{ color: 'var(--theme-primary)' }" />
+              <span v-else class="text-sm" :style="{ color: 'var(--theme-text)' }">正在获取二维码…</span>
+            </div>
+            <p class="text-center text-sm" :style="{ color: 'var(--theme-text)' }">
+              {{ qqScanStatus }}
+            </p>
+            <p v-if="qqScanError" class="text-center text-sm text-red-600">
+              {{ qqScanError }}
+            </p>
+          </div>
+          <div class="text-center text-xs opacity-60" :style="{ color: 'var(--theme-text)' }">
+            使用 QQ 扫描二维码登录，成功后会自动添加账号
+          </div>
         </div>
 
         <div v-if="activeTab === 'qq'" class="space-y-4">

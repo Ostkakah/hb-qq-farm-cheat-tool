@@ -1,7 +1,7 @@
 const { sendMsgAsync, getUserState, getWsErrorState } = require('../utils/network');
 const { types } = require('../utils/proto');
 const { toNum, toLong, toTimeSec, getServerTimeSec, log, logWarn, sleep } = require('../utils/utils');
-const { getPlantNameBySeedId, getPlantGrowTime, formatGrowTime, getAllSeeds, getPlantBySeedId, getPlantById, isEventSeedId } = require('../config/gameConfig');
+const { getPlantNameBySeedId, getPlantGrowTime, formatGrowTime, getAllSeeds, getPlantBySeedId, getPlantById, getItemById, isEventSeedId } = require('../config/gameConfig');
 const {
   getPlantingStrategy,
   syncBagSeedPriority,
@@ -733,6 +733,12 @@ function sortBagSeedsForPlanting(bagSeeds, priorityList) {
     const priorityB = priorityMap.has(b.seedId) ? priorityMap.get(b.seedId) : Number.MAX_SAFE_INTEGER;
     if (priorityA !== priorityB) return priorityA - priorityB;
 
+    // 品质优先：黄(4) > 紫(3) > 蓝(2) > 普通(1)。
+    // 用户自定义的优先清单仍然最优先，这里只在其之后按品质排。
+    const rarityA = Number(a.rarity || 0);
+    const rarityB = Number(b.rarity || 0);
+    if (rarityA !== rarityB) return rarityB - rarityA;
+
     const levelA = Number(a.requiredLevel || 0);
     const levelB = Number(b.requiredLevel || 0);
     if (levelA !== levelB) return levelB - levelA;
@@ -906,6 +912,13 @@ async function findBestSeed(overrideStrategy, accountId = getCurrentAccountId())
   }
 
   const strategy = overrideStrategy || getPlantingStrategy(accountId);
+
+  // 最贵策略：背包里实在没有种子可种时，到商店买最贵的作物来种。
+  // 直接按商店价格降序，不走排行榜（排行榜是按经验/产值算的）。
+  if (strategy === 'max_price') {
+    return [...candidates].sort((a, b) => b.price - a.price)[0];
+  }
+
   const rankingStrategies = {
     max_exp: 'exp',
     max_fert_exp: 'fert',
@@ -1071,6 +1084,8 @@ async function getAvailableSeeds() {
           goodsId: toNum(goods.id),
           name: getPlantNameBySeedId(toNum(goods.item_id)),
           price: toNum(goods.price),
+          // 品质：黄(4) > 紫(3) > 蓝(2) > 普通(1)，前端预览与选种排序都用它
+          rarity: Math.max(0, Number(getItemById(toNum(goods.item_id))?.rarity) || 0),
           requiredLevel,
           locked: !goods.unlocked || userState.level < requiredLevel,
           soldOut
@@ -1411,6 +1426,7 @@ module.exports = {
   isSeedLockedByLevel,
   encodePlantRequest,
   getPlantSizeBySeedId,
+  sortBagSeedsForPlanting,
   build2x2LandGroups,
   selectMaximumNonOverlappingGroups,
   select2x2Reservations,

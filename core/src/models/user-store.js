@@ -12,7 +12,12 @@ const CARD_CLAIM_FILE = getDataFile('card-claim.json');
 
 // ==================== 常量 ====================
 
-const DEFAULT_ACCOUNT_LIMIT = 2;
+/**
+ * 面板账号默认可添加的农场账号数量。
+ * -1 表示不限数量：管理员角色本身不受限制，普通用户也可以由管理员改成 -1。
+ * 额度卡（quota）会在此基础上累加。
+ */
+const DEFAULT_ACCOUNT_LIMIT = 6;
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 

@@ -54,6 +54,7 @@ export function useStrategySettings({
     { label: '背包种子优先', value: 'bag_priority' },
     { label: '任务作物优先', value: 'task_priority' },
     { label: '最高等级作物', value: 'level' },
+    { label: '最贵作物', value: 'max_price' },
     { label: '最大经验/时', value: 'max_exp' },
     { label: '最大普通肥经验/时', value: 'max_fert_exp' },
     { label: '最大净利润/时', value: 'max_profit' },
@@ -63,6 +64,7 @@ export function useStrategySettings({
 
   const bagFallbackStrategyOptions = [
     { label: '最高等级作物', value: 'level' },
+    { label: '最贵作物', value: 'max_price' },
     { label: '最大经验/时', value: 'max_exp' },
     { label: '最大普通肥经验/时', value: 'max_fert_exp' },
     { label: '最大净利润/时', value: 'max_profit' },
@@ -106,6 +108,14 @@ export function useStrategySettings({
     if (strategy === 'level') {
       const best = [...available].sort((a, b) => b.requiredLevel - a.requiredLevel)[0]
       strategyPreviewLabel.value = best ? `${best.requiredLevel}级 ${best.name}` : null
+      return
+    }
+    if (strategy === 'max_price') {
+      // 最贵策略：按商店价格降序，和后端 findBestSeed 的 max_price 分支一致
+      const best = [...available].sort((a, b) => Number(b.price || 0) - Number(a.price || 0))[0]
+      strategyPreviewLabel.value = best
+        ? `${best.requiredLevel}级 ${best.name}（${Number(best.price || 0).toLocaleString('zh-CN')}金币）`
+        : null
       return
     }
     const sortBy = analyticsSortByMap[strategy]

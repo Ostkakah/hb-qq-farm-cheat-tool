@@ -54,6 +54,23 @@ function parseOfficialGatewayUrl(value) {
   return { code, clientVersion, wechat: platform === "wx" || platform === "wechat" };
 }
 
+/**
+ * 计算「添加农场账号」是否超出额度。
+ * 返回错误文案表示被拦截；返回 null 表示允许。
+ *
+ * - 管理员 / 超级管理员：不限数量
+ * - accountLimit 为 -1：不限数量（前端同样按 -1 处理）
+ * - 其余：按 accountLimit 比较，未设置时用默认额度
+ */
+function resolveAccountQuotaError({ currentUser, accountCount, defaultLimit }) {
+  if (!currentUser) return null;
+  if (currentUser.role === "admin" || currentUser.role === "super_admin") return null;
+  const limit = currentUser.accountLimit ?? defaultLimit ?? 0;
+  if (limit < 0) return null;
+  if (Number(accountCount) < limit) return null;
+  return `账号数量已达上限（${limit}个），请购买额度卡密增加额度`;
+}
+
 function syncGatewayClientVersion(gateway, store, updateRuntimeConfig) {
   if (!gateway || !store || typeof store.getSystemConfig !== "function") return false;
   const currentSystemConfig = store.getSystemConfig() || {};
@@ -232,13 +249,13 @@ function registerAdminAccountRoutes({
 
       if (!isUpdate && currentUser && !isAdmin) {
         const accountCount = getAccountsForUser(currentUser.username).length;
-        const accountLimit =
-          currentUser.accountLimit || userStore.DEFAULT_ACCOUNT_LIMIT || 2;
-        if (accountCount >= accountLimit) {
-          return res.status(403).json({
-            ok: false,
-            error: `账号数量已达上限（${  accountLimit  }个），请购买额度卡密增加额度`,
-          });
+        const quotaError = resolveAccountQuotaError({
+          currentUser,
+          accountCount,
+          defaultLimit: userStore.DEFAULT_ACCOUNT_LIMIT,
+        });
+        if (quotaError) {
+          return res.status(403).json({ ok: false, error: quotaError });
         }
       }
 
@@ -391,7 +408,7 @@ function registerAdminAccountRoutes({
 
       const accounts = provider.getAccounts();
       const account = findAccountByRef(accounts.accounts || [], req.params.id);
-      provider.stopAccount(accountId);
+      provider.stopAccount(accountId, { resume: false });
       const data = deleteAccount(accountId);
       if (provider.addAccountLog) {
         provider.addAccountLog(
@@ -526,6 +543,7 @@ function registerAdminAccountRoutes({
 
 module.exports = {
   parseOfficialGatewayUrl,
+  resolveAccountQuotaError,
   registerAdminAccountRoutes,
   stripProtectedWxCredentials,
   syncGatewayClientVersion,

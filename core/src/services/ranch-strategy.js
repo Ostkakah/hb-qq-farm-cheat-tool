@@ -104,7 +104,11 @@ function purchasableCubs(ranch, shop, goodsMap) {
         if (!row || row.price_id !== 1007 || !animal?.enable_flag || !g.unlocked || g.owned ||
             animal.husbandry_type !== ({ 1: '窝', 2: '棚' })[ranch.husbandryType] ||
             (BigInt(g.limitCount || 0) > 0n && BigInt(g.boughtNum || 0) >= BigInt(g.limitCount))) return [];
-        return [{ itemId: row.item_id, animalId: animal.id, goodsId: String(g.id), price: String(g.price) }];
+        // conds 里 type=3 是「最低大农场等级」，即这个品种属于哪一档。
+        // 选种要按它降序，才能养当前牧场等级养得起的最高级动物。
+        const levelCond = (g.conds || []).find(c => Number(c.type) === 3);
+        const requiredLevel = Number(levelCond && levelCond.param) || 0;
+        return [{ itemId: row.item_id, animalId: animal.id, goodsId: String(g.id), price: String(g.price), requiredLevel }];
     });
 }
 module.exports = { taskCubIds, purchasableCubs, selectCub, feedTypes, quietNow, createRanchMaturityPlan };

@@ -217,7 +217,8 @@ function deleteAccountCaches(accountId) {
 
 const ALLOWED_PLANTING_STRATEGIES = [
     'level', 'max_exp', 'max_fert_exp',
-    'max_profit', 'max_fert_profit', 'bag_priority', 'task_priority', 'seed_priority'
+    'max_profit', 'max_fert_profit', 'bag_priority', 'task_priority', 'seed_priority',
+    'max_price'
 ];
 const ALLOWED_BAG_SEED_FALLBACK_STRATEGIES = ALLOWED_PLANTING_STRATEGIES.filter(
     s => s !== 'bag_priority' && s !== 'task_priority'

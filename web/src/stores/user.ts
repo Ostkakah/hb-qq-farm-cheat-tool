@@ -2,6 +2,7 @@ import { useStorage } from '@vueuse/core'
 import { defineStore } from 'pinia'
 import { computed } from 'vue'
 import api from '@/api'
+import { DEFAULT_ACCOUNT_LIMIT } from '@/constants/account-limit'
 
 export interface UserCard {
   code: string
@@ -110,7 +111,7 @@ export const useUserStore = defineStore('user', () => {
   const isSuperAdmin = computed(() => userInfo.value?.role === 'super_admin')
   const username = computed(() => userInfo.value?.username || '')
   const userCard = computed(() => userInfo.value?.card)
-  const accountLimit = computed(() => userInfo.value?.accountLimit ?? 2)
+  const accountLimit = computed(() => userInfo.value?.accountLimit ?? DEFAULT_ACCOUNT_LIMIT)
   const avatar = computed(() => userInfo.value?.avatar || '')
 
   // 检查用户是否过期
@@ -144,7 +145,7 @@ export const useUserStore = defineStore('user', () => {
           username: res.data.data.user.username,
           role: res.data.data.role,
           card: res.data.data.card,
-          accountLimit: res.data.data.accountLimit ?? 2,
+          accountLimit: res.data.data.accountLimit ?? DEFAULT_ACCOUNT_LIMIT,
           mustChangePassword: res.data.data.mustChangePassword,
         }
       }
@@ -183,7 +184,16 @@ export const useUserStore = defineStore('user', () => {
     try {
       const res = await api.get('/api/user/me')
       if (res.data.ok) {
-        userInfo.value = res.data.data
+        // 合并而不是整体覆盖：/api/user/me 不返回 mustChangePassword，
+        // 整体覆盖会把「需改密码」的标记抹掉，导致提示消失或反复出现。
+        const previous = userInfo.value
+        userInfo.value = {
+          username: res.data.data.username,
+          role: res.data.data.role,
+          card: res.data.data.card,
+          accountLimit: res.data.data.accountLimit ?? DEFAULT_ACCOUNT_LIMIT,
+          mustChangePassword: previous?.mustChangePassword ?? false,
+        }
       }
       return res.data
     }

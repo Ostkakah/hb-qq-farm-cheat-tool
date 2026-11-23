@@ -1,6 +1,7 @@
 import type { UserCard } from '@/stores/user'
 import { computed, ref } from 'vue'
 import api from '@/api'
+import { DEFAULT_ACCOUNT_LIMIT } from '@/constants/account-limit'
 import { useToastStore } from '@/stores/toast'
 import { useUserStore } from '@/stores/user'
 
@@ -62,7 +63,7 @@ export function useAdminUsers() {
   const editForm = ref<EditForm>({
     newUsername: '',
     password: '',
-    accountLimit: 2,
+    accountLimit: DEFAULT_ACCOUNT_LIMIT,
     expiresAt: '',
     isPermanent: false,
   })
@@ -269,7 +270,7 @@ export function useAdminUsers() {
     editForm.value = {
       newUsername: user.username,
       password: '',
-      accountLimit: user.accountLimit || 2,
+      accountLimit: user.accountLimit ?? DEFAULT_ACCOUNT_LIMIT,
       expiresAt: user.card?.expiresAt ? formatDateTimeLocal(user.card.expiresAt) : '',
       isPermanent: user.card?.days === -1,
     }

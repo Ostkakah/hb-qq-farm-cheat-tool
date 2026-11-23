@@ -1209,6 +1209,12 @@ function createRanchService({ rpc, session = ranchSession, getUserState, getSett
                 const sliceStartedAt = now();
                 const identity = (payload, key = ACTION_SWITCH[payload.action]) => {
                     const { count, price, costCount, costs, ...target } = payload;
+                    // place 必须能反复执行：同一栏位同一品种在配置不变时只会被放一次，
+                    // 栏位就永远填不满。带上当前栏位数量让身份随进度变化，
+                    // 同时仍保留「同一次数量下不重复写」的防重放语义。
+                    if (payload.action === 'place') {
+                        return JSON.stringify([key, target, Number(payload.placeSeq) || 0]);
+                    }
                     return JSON.stringify([key, target]);
                 };
                 // Always allow one new complete action per slice. Slow prerequisite reads must
