@@ -273,9 +273,9 @@ hb-qq-farm-cheat-tool/
 ## 📖 使用文档
 
 - [单机版使用说明](docs/使用说明-单机版.md) —— 给使用者的完整指南
-- [活动插件开发指南](docs/plugin-development.md)
-- [限时活动适配手册](docs/activity-update-runbook.md)
-- [TSDK / WASM 更新手册](docs/tsdk-update-runbook.md)
+- [活动插件开发指南](core/docs/plugin-development.md)
+- [限时活动适配手册](core/docs/activity-update-runbook.md)
+- [TSDK / WASM 更新手册](core/docs/tsdk-update-runbook.md)
 - [更新记录](docs/CHANGELOG.md)
 
 ---
