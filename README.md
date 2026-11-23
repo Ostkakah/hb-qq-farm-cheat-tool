@@ -102,7 +102,7 @@ docker compose logs -f
 | **微信扫码** | 微信玩家 | 页面自动出二维码 → 手机微信扫 → 应用宝授权页确认。账号自动添加、自动开启 Code 刷新、自动开始收菜 |
 | **QQ 扫码** | QQ 玩家 | 同样自动出二维码，手机 QQ 扫。**单机版开箱即用，不需要 NapCat** |
 | 手动填码 | 备用 | 粘贴 Code 或 WebSocket 链接 |
-| 抓包登录 | 手机抓包 | 需要安装并信任 CA 证书，见 `core/docs/capture-service.md` |
+| 抓包登录 | 手机抓包 | 需要安装并信任 CA 证书；抓包服务默认开启，端口 `18000` |
 
 > **账号数量**：普通面板账号默认可加 **6 个**农场账号，管理员不限量。
 > 在「后台 → 用户管理」里可以改额度，填 `-1` 表示不限。
@@ -273,9 +273,9 @@ hb-qq-farm-cheat-tool/
 ## 📖 使用文档
 
 - [单机版使用说明](docs/使用说明-单机版.md) —— 给使用者的完整指南
-- [活动插件开发指南](core/docs/plugin-development.md)
-- [限时活动适配手册](core/docs/activity-update-runbook.md)
-- [TSDK / WASM 更新手册](core/docs/tsdk-update-runbook.md)
+- [活动插件开发指南](docs/plugin-development.md)
+- [限时活动适配手册](docs/activity-update-runbook.md)
+- [TSDK / WASM 更新手册](docs/tsdk-update-runbook.md)
 - [更新记录](docs/CHANGELOG.md)
 
 ---
