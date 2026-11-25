@@ -20,10 +20,33 @@
  */
 
 const express = require('express');
+const fs = require('node:fs');
+const path = require('node:path');
 const { resolveAdvertiseAddresses } = require('./ip-utils');
 
-function createCaptureApi({ config, ca, sessionStore, proxyManager, log = () => {} } = {}) {
+function createCaptureApi({ config, ca, sessionStore, proxyManager, dataDir, log = () => {} } = {}) {
   const startedAt = Date.now();
+
+  /**
+   * 把会话的 WebSocket 帧落盘成 HAR。
+   * 活动适配需要协议样本（命令字 / 字段号 / 返回结构），
+   * 会话本身只在内存里存一小时，落盘后随时能取。
+   */
+  function dumpSessionHar(session) {
+    if (!session) return '';
+    const har = sessionStore.exportSessionHar(session);
+    if (!har) return '';
+    try {
+      const dir = path.join(dataDir || path.join(__dirname, '../../data'), 'capture', 'har');
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, `${session.id}.har`);
+      fs.writeFileSync(file, JSON.stringify(har), 'utf8');
+      return file;
+    } catch (error) {
+      log('warn', `HAR 落盘失败: ${error.message}`);
+      return '';
+    }
+  }
 
   /** 从路径中提取会话 ID（/api/sessions/<id>/state、/api/sessions/<id>） */
   function extractSessionIdFromPath(method, path) {
@@ -107,7 +130,11 @@ function createCaptureApi({ config, ca, sessionStore, proxyManager, log = () => 
 
       if (key === 'POST /api/capture/stop') {
         const session = sessionStore.getSession(sessionId);
-        if (session) await proxyManager.stopForSession(session);
+        if (session) {
+          await proxyManager.stopForSession(session);
+          const harPath = dumpSessionHar(session);
+          if (harPath) log('info', `已导出抓包 HAR: ${harPath}`);
+        }
         return { status: 200, body: { ok: true, data: {} } };
       }
 
@@ -119,6 +146,19 @@ function createCaptureApi({ config, ca, sessionStore, proxyManager, log = () => 
         const session = sessionStore.getSession(sessionId);
         if (!session) return { status: 404, body: { ok: false, error: '会话不存在' } };
         return { status: 200, body: { ok: true, data: sessionStore.buildSnapshot(session) } };
+      }
+
+      // 导出 HAR：给活动适配用（inspect-activity-har.js 直接读这个格式）
+      if (key.startsWith('GET /api/sessions/') && key.endsWith('/har')) {
+        const session = sessionStore.getSession(sessionId);
+        if (!session) return { status: 404, body: { ok: false, error: '会话不存在' } };
+        const har = sessionStore.exportSessionHar(session);
+        if (!har) return { status: 404, body: { ok: false, error: '会话不存在' } };
+        return {
+          status: 200,
+          headers: { 'Content-Disposition': `attachment; filename="qq-farm-${session.id}.har"` },
+          body: har,
+        };
       }
 
       if (key.startsWith('DELETE /api/sessions/')) {

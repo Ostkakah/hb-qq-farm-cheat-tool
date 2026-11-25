@@ -285,6 +285,7 @@ function createMitmProxyManager(deps = {}) {
     let clientBuffer = Buffer.alloc(0);
     let upstreamBuffer = Buffer.alloc(0);
     let wsParser = null;
+    let clientWsParser = null;
     let wsUpstreamPending = false;
     let wsUpstreamBuffer = Buffer.alloc(0);
     let destroyed = false;
@@ -351,6 +352,8 @@ function createMitmProxyManager(deps = {}) {
       if (destroyed) return;
 
       if (headParsed) {
+        // 升级完成后客户端发的是 WebSocket 帧：记录下来用于还原活动协议
+        if (clientWsParser) clientWsParser.push(chunk);
         if (upstreamReady) upstream.write(chunk);
         else clientBuffer = Buffer.concat([clientBuffer, chunk]);
         return;
@@ -380,10 +383,13 @@ function createMitmProxyManager(deps = {}) {
         });
       }
 
-      // 升级为 WebSocket 后解析好友 GID
-      if (parsed && parsed.isUpgrade && friendExtractor) {
+      // 升级为 WebSocket 后：解析帧。既用于提取好友 GID，
+      // 也把两个方向的帧记录下来，用于还原活动协议（命令字 / 字段号 / 返回结构）。
+      if (parsed && parsed.isUpgrade) {
         wsParser = new WsFrameParser({
           onMessage: (message) => {
+            sessionStore.addWsFrame(session, 'receive', message);
+            if (!friendExtractor) return;
             try {
               const result = friendExtractor.handleMessage(message);
               if (result && result.gids.length > 0) {
@@ -402,6 +408,12 @@ function createMitmProxyManager(deps = {}) {
             } catch {
               // 忽略单条消息解析错误
             }
+          },
+        });
+        // 客户端→服务器方向：请求帧（活动命令字与参数在这里）
+        clientWsParser = new WsFrameParser({
+          onMessage: (message) => {
+            sessionStore.addWsFrame(session, 'send', message);
           },
         });
         // 先消费上游 101 响应头，再开始解析 WS 帧

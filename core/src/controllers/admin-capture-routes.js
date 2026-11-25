@@ -688,8 +688,32 @@ function registerAdminCaptureRoutes({
     }
   });
 
-  app.get("/api/public/capture-certificate/:flowId/:token", async (req, res) => {
-    const flow = captureFlows.get(String(req.params.flowId || ""));
+  /**
+   * 导出抓包会话的 WebSocket 帧（Chrome HAR 格式）。
+   * 活动适配需要协议样本时用这个：手机在小程序里把活动点一遍，
+   * 再导出 HAR 就能还原命令字、字段号与返回结构。
+   */
+  app.get("/api/capture/sessions/:flowId/har", async (req, res) => {
+    const flow = findOwnedFlow(req.params.flowId, req.currentUser);
+    if (!flow) return res.status(404).json({ ok: false, error: "抓取任务不存在或已过期" });
+    try {
+      const config = resolveCaptureConfig(store);
+      const sessionId = flow.remoteSessionId;
+      if (!sessionId) return res.status(404).json({ ok: false, error: "抓取任务缺少会话标识" });
+      const har = await captureRequest(config, `/api/sessions/${encodeURIComponent(sessionId)}/har`, {
+        method: "GET",
+        sessionId,
+      });
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="qq-farm-${sessionId}.har"`);
+      res.send(JSON.stringify(har));
+    } catch (error) {
+      res.status(502).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.get("/api/public/capture-certificate/:flowId/:token", async (req, res) => {    const flow = captureFlows.get(String(req.params.flowId || ""));
     if (!flow || !isCertificateTokenValid(flow, req.params.token)) {
       return res.status(404).json({ ok: false, error: "证书链接不存在或已过期" });
     }

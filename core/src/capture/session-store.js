@@ -39,9 +39,61 @@ function createSessionStore({ config } = {}) {
         certUrl: '/cert/mitmproxy-ca-cert.cer',
       },
       bypassHosts: [],
+      // 抓到的 WebSocket 帧：用于还原活动协议（命令字 / 字段号 / 返回结构）。
+      // 只留最近若干帧，避免长时间抓包把内存吃满。
+      wsFrames: [],
+      wsFrameBytes: 0,
     };
     sessions.set(id, session);
     return session;
+  }
+
+  /**
+   * 记录一条 WebSocket 帧。
+   * @param {object} session
+   * @param {'send'|'receive'} direction - send=客户端→服务器，receive=服务器→客户端
+   * @param {Buffer} buffer - 原始二进制帧载荷
+   */
+  function addWsFrame(session, direction, buffer) {
+    if (!session || !buffer || !buffer.length) return;
+    const MAX_FRAMES = 4000;
+    const MAX_BYTES = 16 * 1024 * 1024;
+    if (session.wsFrames.length >= MAX_FRAMES || session.wsFrameBytes >= MAX_BYTES) {
+      session.wsFrames.shift();
+    }
+    session.wsFrames.push({
+      type: direction === 'send' ? 'send' : 'receive',
+      opcode: 2,
+      data: buffer.toString('base64'),
+      at: Date.now(),
+    });
+    session.wsFrameBytes += buffer.length;
+  }
+
+  /** 把某个会话的 WS 帧导出成 Chrome 风格的 HAR（inspect-activity-har.js 可直接读） */
+  function exportSessionHar(session) {
+    if (!session) return null;
+    const frames = Array.isArray(session.wsFrames) ? session.wsFrames : [];
+    return {
+      log: {
+        version: '1.2',
+        creator: { name: 'qq-farm-bot capture', version: '1.0' },
+        entries: [
+          {
+            startedDateTime: new Date(session.createdAt || Date.now()).toISOString(),
+            time: 0,
+            request: { method: 'WS', url: 'wss://gate-obt.nqf.qq.com/prod/ws' },
+            response: { status: 101, statusText: 'Switching Protocols' },
+            _webSocketMessages: frames.map(frame => ({
+              type: frame.type,
+              opcode: frame.opcode,
+              data: frame.data,
+              time: frame.at,
+            })),
+          },
+        ],
+      },
+    };
   }
 
   function getSession(id) {
@@ -179,10 +231,12 @@ function createSessionStore({ config } = {}) {
   return {
     addCode,
     addFriendGids,
+    addWsFrame,
     buildSnapshot,
     cleanupExpired,
     createSession,
     deleteSession,
+    exportSessionHar,
     getCodesArray,
     getSession,
     hasSession,

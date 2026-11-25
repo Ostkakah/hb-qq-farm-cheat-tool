@@ -66,6 +66,7 @@ function createCaptureCore(options = {}) {
     config,
     ca,
     sessionStore,
+    dataDir,
     proxyManager: {
       startForSession: (...args) => ready.then(() => proxyManager.startForSession(...args)),
       stopForSession: (...args) => ready.then(() => proxyManager.stopForSession(...args)),
