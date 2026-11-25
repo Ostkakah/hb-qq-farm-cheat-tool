@@ -48,7 +48,10 @@ async function main() {
   const rows = [];
 
   for (const [index, frame] of messages.entries()) {
-    const encoded = frame?.payload?.buffer;
+    // 兼容两种 HAR 帧格式：
+    //   Charles 风格 { payload: { buffer }, flow }
+    //   Chrome  风格 { data, type: 'send'|'receive' }
+    const encoded = frame?.payload?.buffer || frame?.data;
     if (!encoded) continue;
 
     let gate;
@@ -61,7 +64,9 @@ async function main() {
     const meta = gate.meta || {};
     const service = String(meta.service_name || '');
     const method = String(meta.method_name || '');
-    const direction = Number(frame.flow) === 0 ? 'request' : 'response';
+    const direction = frame?.flow !== undefined
+      ? (Number(frame.flow) === 0 ? 'request' : 'response')
+      : (frame?.type === 'send' ? 'request' : 'response');
     const row = {
       index,
       time: new Date(Number(frame.timestamp) || 0).toISOString(),

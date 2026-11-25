@@ -70,7 +70,11 @@ function createSessionStore({ config } = {}) {
     session.wsFrameBytes += buffer.length;
   }
 
-  /** 把某个会话的 WS 帧导出成 Chrome 风格的 HAR（inspect-activity-har.js 可直接读） */
+  /**
+   * 把某个会话的 WS 帧导出成 HAR。
+   * 同时带 Chrome（data/opcode）和 Charles（payload.buffer/flow）两套字段，
+   * inspect-activity-har.js 与其它 HAR 工具都能直接读。
+   */
   function exportSessionHar(session) {
     if (!session) return null;
     const frames = Array.isArray(session.wsFrames) ? session.wsFrames : [];
@@ -85,10 +89,15 @@ function createSessionStore({ config } = {}) {
             request: { method: 'WS', url: 'wss://gate-obt.nqf.qq.com/prod/ws' },
             response: { status: 101, statusText: 'Switching Protocols' },
             _webSocketMessages: frames.map(frame => ({
+              // Chrome 风格
               type: frame.type,
               opcode: frame.opcode,
               data: frame.data,
               time: frame.at,
+              // Charles 风格：inspect-activity-har.js 读的就是这套
+              payload: { type: 'string', buffer: frame.data },
+              flow: frame.type === 'send' ? 0 : 1,
+              timestamp: frame.at,
             })),
           },
         ],

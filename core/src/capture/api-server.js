@@ -165,6 +165,9 @@ function createCaptureApi({ config, ca, sessionStore, proxyManager, dataDir, log
         const session = sessionStore.getSession(sessionId);
         if (session) {
           await proxyManager.stopForSession(session);
+          // 先落盘再删会话：会话只在内存里存一小时，HAR 要留下来给活动适配用
+          const harPath = dumpSessionHar(session);
+          if (harPath) log('info', `已导出抓包 HAR: ${harPath}`);
           sessionStore.deleteSession(session.id);
         }
         return { status: 200, body: { ok: true, data: {} } };
