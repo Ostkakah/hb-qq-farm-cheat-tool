@@ -4,7 +4,7 @@ const path = require('node:path');
 const { getDataFile, ensureDataDir } = require('../config/runtime-paths');
 const { readTextFile, readJsonFile, writeJsonFileAtomic } = require('../services/json-db');
 const { compareBagSeedGameOrder } = require('../utils/bag-seed-order');
-const { getItemImageById } = require('../config/gameConfig');
+const { getItemImageById, isFeaturedSeedId } = require('../config/gameConfig');
 const {
     normalizePolicy: normalizeRanchPolicy,
     SETTINGS_KEYS: RANCH_SETTINGS_KEYS,
@@ -678,6 +678,14 @@ function syncBagSeedPriority(accountId, bagSeeds, options = {}) {
     const priority = normalizeBagSeedPriority(cfg.bagSeedPriority).filter(id => !excludedSet.has(id));
     const knownIds = normalizeBagSeedPriority(cfg.bagSeedKnownIds);
     const nextPriority = [...priority, ...currentIds.filter(id => !priority.includes(id) && !excludedSet.has(id))];
+    // 活动重点种子（蜜薯）永远排在最前：设置页的顺序列表与实际种植顺序保持一致，
+    // 避免用户在面板上看到它排在最后、实际却被先种。
+    const featured = nextPriority.filter(id => isFeaturedSeedId(id));
+    if (featured.length > 0) {
+        const rest = nextPriority.filter(id => !isFeaturedSeedId(id));
+        nextPriority.length = 0;
+        nextPriority.push(...featured, ...rest);
+    }
 
     const nextKnownIds = [...new Set([...knownIds, ...priority, ...currentIds])];
     const changed = JSON.stringify(nextPriority) !== JSON.stringify(priority)

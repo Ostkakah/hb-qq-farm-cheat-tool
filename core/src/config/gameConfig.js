@@ -520,13 +520,17 @@ function getPlantBySeedId(seedId) {
 /** 根据植物ID获取植物名 */
 function getPlantName(plantId) {
     const plant = getPlantById(plantId);
-    return plant ? plant.name : `植物${  plantId}`;
+    if (plant) return plant.name;
+    // 活动重点作物（蜜薯 1020307）官方 Plant 表还没收录，用本地名字兜底
+    const featured = getFeaturedSeedName(Number(plantId) - 1020000);
+    return featured || `植物${  plantId}`;
 }
 
 /** 根据种子ID获取植物名 */
 function getPlantNameBySeedId(seedId) {
     const plant = getPlantBySeedId(seedId);
-    return plant ? plant.name : `种子${  seedId}`;
+    if (plant) return plant.name;
+    return getFeaturedSeedName(seedId) || `种子${  seedId}`;
 }
 
 /**
@@ -885,23 +889,51 @@ function isSeedItem(itemId) {
 }
 
 /**
- * 是否是「本地官方配置尚未收录、但仓库里确实存在」的种子。
+ * 活动重点种子：优先级高于普通品质排序。
  *
- * 活动限定品种（例：26038）常常只同步到了素材（种子图），
+ * 20307 = 蜜薯（以薯换福 活动作物）。
+ * 官方 Plant / ItemInfo 表都还没收录它，植物 id 按官方规律是 1020000 + seedId = 1020307，
+ * 所以本地查不到名字、也查不到图，只能按 id 认定。
+ * 背包里有的就先种它，没有再按常规品质排序。
+ */
+const FEATURED_SEED_IDS = new Set([20307]);
+
+/**
+ * 活动重点种子的本地名称。
+ * 官方 ItemInfo / Plant 表还没收录，只能在本地补一个可读名字，
+ * 免得前端显示「种子20307」这种看不懂的东西。
+ */
+const FEATURED_SEED_NAMES = new Map([
+    [20307, '蜜薯'],
+]);
+
+/** 是否是活动重点种子 */
+function isFeaturedSeedId(seedId) {
+    return FEATURED_SEED_IDS.has(Number(seedId) || 0);
+}
+
+/** 获取活动重点种子的本地名称（没有则返回空串） */
+function getFeaturedSeedName(seedId) {
+    return FEATURED_SEED_NAMES.get(Number(seedId) || 0) || '';
+}
+
+/**
+ * 是否是「本地官方配置尚未收录」的种子。
+ *
+ * 活动限定品种（例：20307 蜜薯、26038）常常只同步到了素材甚至什么都没有，
  * 却还没进 Plant / ItemInfo 表。按配置过滤时这类种子会被当成「背包里没有种子」，
  * 于是白白去商店买种 —— 背包里明明躺着一把紫色品质的活动种子。
  *
- * 判定条件（三者都要满足，避免把普通道具误判成种子）：
- *   1. id 落在官方种子 id 区间 20000~29999（种子礼包是 1016xx，不在此区间）
- *   2. Plant / ItemInfo 表里都查不到
- *   3. 素材里能找到它的种子图
+ * 判定依据：id 落在官方种子 id 区间 20000~29999，且 Plant / ItemInfo 表里都查不到。
+ * 该区间已核对过：ItemInfo 里 243 个条目全部是 type=5 的种子，没有普通道具混入
+ * （种子礼包是 1016xx、牧草是 7001，都在区间外），所以不会误判。
  */
 function isUnlistedSeedItem(itemId) {
     const id = Number(itemId) || 0;
     if (id < 20000 || id > 29999) return false;
     if (seedItemMap.has(id)) return false;
     if (seedToPlant.has(id)) return false;
-    return !!getSeedImageBySeedId(id);
+    return true;
 }
 
 /** 获取种子价格 */
@@ -1073,6 +1105,8 @@ module.exports = {
     getLandUpgradeNeed,
     isSeedItem,
     isUnlistedSeedItem,
+    isFeaturedSeedId,
+    getFeaturedSeedName,
     getSeedPrice,
     getFruitPrice,
     getFruitLayerBySeedId,

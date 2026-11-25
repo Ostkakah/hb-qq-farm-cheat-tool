@@ -1,7 +1,7 @@
 const { sendMsgAsync, getUserState, getWsErrorState } = require('../utils/network');
 const { types } = require('../utils/proto');
 const { toNum, toLong, toTimeSec, getServerTimeSec, log, logWarn, sleep } = require('../utils/utils');
-const { getPlantNameBySeedId, getPlantGrowTime, formatGrowTime, getAllSeeds, getPlantBySeedId, getPlantById, getItemById, isEventSeedId } = require('../config/gameConfig');
+const { getPlantNameBySeedId, getPlantGrowTime, formatGrowTime, getAllSeeds, getPlantBySeedId, getPlantById, getItemById, isEventSeedId, isFeaturedSeedId } = require('../config/gameConfig');
 const {
   getPlantingStrategy,
   syncBagSeedPriority,
@@ -717,6 +717,15 @@ async function plantSeeds(seedId, landIds, options = {}) {
 
 /**
  * 按背包优先级排序背包种子
+ *
+ * 排序层级（从高到低）：
+ *   1. 活动重点种子（蜜薯 20307）—— 背包里有就先种它
+ *   2. 用户自定义的优先清单
+ *   3. 品质：黄(4) > 紫(3) > 蓝(2) > 普通(1)
+ *   4. 需求等级、种子 ID
+ *
+ * 蜜薯没有就退回旧逻辑（优先清单 → 品质排序），行为不变。
+ *
  * @param {Array} bagSeeds - 背包种子列表
  * @param {Array} priorityList - 优先级种子 ID 列表
  */
@@ -729,6 +738,11 @@ function sortBagSeedsForPlanting(bagSeeds, priorityList) {
   });
 
   return [...(Array.isArray(bagSeeds) ? bagSeeds : [])].sort((a, b) => {
+    // 活动重点种子（蜜薯）永远排最前
+    const featuredA = isFeaturedSeedId(a.seedId) ? 1 : 0;
+    const featuredB = isFeaturedSeedId(b.seedId) ? 1 : 0;
+    if (featuredA !== featuredB) return featuredB - featuredA;
+
     const priorityA = priorityMap.has(a.seedId) ? priorityMap.get(a.seedId) : Number.MAX_SAFE_INTEGER;
     const priorityB = priorityMap.has(b.seedId) ? priorityMap.get(b.seedId) : Number.MAX_SAFE_INTEGER;
     if (priorityA !== priorityB) return priorityA - priorityB;

@@ -18,6 +18,8 @@ const {
   getSeedImageBySeedId,
   isSeedItem,
   isUnlistedSeedItem,
+  isFeaturedSeedId,
+  getFeaturedSeedName,
 } = require('../config/gameConfig');
 const { isAutomationOn, getAutomation } = require('../models/store');
 const { sendMsgAsync, networkEvents, getUserState } = require('../utils/network');
@@ -835,13 +837,14 @@ async function getBagSeeds() {
 
     const existing = seedMap.get(id) || {
       seedId: id,
-      name: unlistedSeed ? `种子${id}` : name,
+      name: unlistedSeed ? (getFeaturedSeedName(id) || `种子${id}`) : name,
       count: 0,
       requiredLevel,
       // 未收录种子的品质无从得知，按活动植物的下限（蓝）保守处理，
       // 不让它跟已知的高品质种子抢优先级；等级限制同样按「不限制」处理。
+      // 例外：活动重点种子（蜜薯）单独标记最高品质，保证它一路排到最前。
       rarity: unlistedSeed
-        ? 2
+        ? (isFeaturedSeedId(id) ? 4 : 2)
         : Math.max(
             plant && plant.special_fruit ? 3 : 0,
             Number(info && info.rarity) || 0
