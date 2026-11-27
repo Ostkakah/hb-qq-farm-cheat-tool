@@ -20,10 +20,28 @@ function registerAdminQrLoginRoutes({ app }) {
       const status = await MiniProgramLoginSession.queryStatus(code);
       if (status.status === "OK") {
         const appId = "1112386029";
-        const authCode = await MiniProgramLoginSession.getAuthCode(
-          status.ticket,
-          appId,
-        );
+        let authCode = "";
+        try {
+          authCode = await MiniProgramLoginSession.getAuthCode(
+            status.ticket,
+            appId,
+          );
+        } catch (error) {
+          // 换码失败时绝不能把错误码（如 -3000）当成登录 Code 返回给前端入库
+          return res.json({
+            ok: true,
+            data: {
+              status: "Error",
+              error: `QQ 授权码获取失败：${error.message}`,
+            },
+          });
+        }
+        if (!authCode) {
+          return res.json({
+            ok: true,
+            data: { status: "Error", error: "QQ 授权码为空，请重新扫码" },
+          });
+        }
         const avatar = status.uin
           ? `https://q1.qlogo.cn/g?b=qq&nk=${  status.uin  }&s=640`
           : "";

@@ -124,7 +124,18 @@ function createReloginReminderService(deps) {
               stop();
               return;
             }
-            const authCode = await miniProgramLoginSession.getAuthCode(ticket, '1112386029');
+            // 换码失败必须在这里显式拦下并报错：getAuthCode 失败会抛异常
+            // （旧实现返回空串）。不拦的话异常会落到外层 catch，
+            // 变成「每秒钟重试两分钟」的静默重试，用户既看不到原因，
+            // 还会一直打腾讯的换码接口。
+            let authCode = '';
+            try {
+              authCode = await miniProgramLoginSession.getAuthCode(ticket, '1112386029');
+            } catch (error) {
+              log('错误', `重登录监听失败: ${ error && error.message ? error.message : error }`);
+              stop();
+              return;
+            }
             if (!authCode) {
               log('错误', '重登录监听失败: 未获取到新 code');
               stop();

@@ -13,6 +13,34 @@ const { CookieUtils, HashUtils } = require('../utils/qrutils');
 // 浏览器 UA
 const ChromeUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
+// ---- 授权码提取（兼容 /ide/login 不同版本的响应结构）----
+
+/** 授权码通常是长串；短数字、布尔值、状态码都排除掉 */
+function looksLikeAuthCode(value) {
+  const s = String(value || '').trim();
+  if (s.length < 8) return false;
+  if (/^[+-]?\d+$/.test(s)) return s.length >= 16;
+  return true;
+}
+
+/** 在响应对象里递归寻找真正的授权码（顶层 code 是状态码，授权码一般在 data 里） */
+function findAuthCode(node, depth = 0) {
+  if (!node || depth > 6) return '';
+  if (typeof node === 'string') return looksLikeAuthCode(node) ? node.trim() : '';
+  if (typeof node !== 'object') return '';
+
+  for (const key of ['code', 'authCode', 'authorization_code', 'auth_code', 'loginCode']) {
+    const val = node[key];
+    if (typeof val === 'string' && looksLikeAuthCode(val)) return val.trim();
+  }
+  for (const [key, val] of Object.entries(node)) {
+    if (key.toLowerCase() === 'code' && typeof val !== 'object') continue;
+    const found = findAuthCode(val, depth + 1);
+    if (found) return found;
+  }
+  return '';
+}
+
 // ---- QQ 网页扫码登录渠道预设 ----
 
 const QQ_VIP_PRESET = {
@@ -234,22 +262,63 @@ class MiniProgramLoginSession {
    */
   static async getAuthCode(ticket, appid = '1112386029') {
     try {
-      const response = await axios.post(
+      return await this._exchangeAuthCode(ticket, appid);
+    } catch (err) {
+      // 这里必须抛出而不是吞掉错误：上层曾把错误码（如 -3000）当成登录 Code 入库，
+      // 导致 WebSocket 握手带上 code=-3000 被网关直接 400 拒绝。
+      console.error('[QQ扫码] 换取授权码失败:', err.message);
+      throw err;
+    }
+  }
+
+  static async _exchangeAuthCode(ticket, appid) {
+    let response;
+    try {
+      response = await axios.post(
         'https://q.qq.com/ide/login',
         { appid, ticket },
         { headers: this.getHeaders() }
       );
-      if (response.status !== 200) return '';
-      const { code } = response.data;
-      return code || '';
     } catch (err) {
-      console.error('MP Get Auth Code Error:', err.message);
-      return '';
+      throw new Error(`腾讯换码接口请求失败: ${err.message}`);
     }
+    if (response.status !== 200) {
+      throw new Error(`腾讯换码接口 HTTP ${response.status}`);
+    }
+
+    const body = response.data || {};
+    // 脱敏后的原始响应，便于定位上游接口结构变化（授权码只显示长度）
+    const raw = JSON.stringify(body).slice(0, 500)
+      .replace(/[A-Za-z0-9_-]{16,}/g, (m) => `<str:${m.length}>`);
+
+    // 顶层 code 是接口状态码：成功为 0；负数/短数字都是失败码（-3000、-13200 等）。
+    // 不能把它当授权码返回。
+    const topCode = body.code;
+    const statusLike = typeof topCode === 'number'
+      || (typeof topCode === 'string' && /^-?\d{1,8}$/.test(topCode.trim()));
+    if (statusLike && Number(topCode) !== 0) {
+      // -3000 是腾讯停用「QQ 开发者工具扫码换码」渠道后返回的固定拒绝码，
+      // 本地无法修复，继续重复扫码没有意义，直接给出可操作的替代方案。
+      const hint = Number(topCode) === -3000
+        ? '；该扫码换码渠道已被腾讯停用，请改用「抓包登录」或「手动填码」获取 Code'
+        : '';
+      throw new Error(`腾讯换码失败 (code=${topCode} ${body.message || ''})${hint}`.trim()
+        + ` | 响应: ${raw}`);
+    }
+
+    const authCode = findAuthCode(body);
+    if (!authCode) {
+      throw new Error(`换码接口未返回有效授权码 | 响应: ${raw}`);
+    }
+    console.log(`[QQ扫码] 换取授权码成功，长度 ${authCode.length}`);
+    return authCode;
   }
 }
 
 module.exports = {
   QRLoginSession,
   MiniProgramLoginSession,
+  // 导出给测试：授权码提取与状态码判定的边界行为必须可回归
+  looksLikeAuthCode,
+  findAuthCode,
 };
