@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { isFeaturedSeedId, getFeaturedSeedName, isUnlistedSeedItem } = require('../src/config/gameConfig');
+const { isFeaturedSeedId, getFeaturedSeedName, isUnlistedSeedItem, getPlantBySeedId, getItemById } = require('../src/config/gameConfig');
 const { sortBagSeedsForPlanting } = require('../src/services/planting-service');
 
 /**
@@ -12,11 +12,20 @@ const { sortBagSeedsForPlanting } = require('../src/services/planting-service');
  * 于是既不会被种，也不会显示名字。
  */
 
-test('蜜薯 20307 被识别成活动重点种子，且官方配置未收录', () => {
+test('蜜薯 20307 被识别成活动重点种子', () => {
   assert.equal(isFeaturedSeedId(20307), true);
   assert.equal(getFeaturedSeedName(20307), '蜜薯');
-  // 本地官方配置确实没收录它 —— 这正是它以前被漏掉的原因
-  assert.equal(isUnlistedSeedItem(20307), true);
+});
+
+test('蜜薯已登记为活动植物，不再算「官方配置未收录」', () => {
+  // 官方基础表（Plant / ItemInfo）确实不收录活动限定作物，
+  // 但它已经进了 EventPlants 活动植物增量表，因此不再是未收录状态。
+  assert.equal(isUnlistedSeedItem(20307), false);
+  const plant = getPlantBySeedId(20307);
+  assert.equal(plant && plant.name, '蜜薯');
+  assert.equal(plant && plant.size, 1);
+  const item = getItemById(20307);
+  assert.equal(item && item.type, 5);
 });
 
 test('普通种子不是活动重点种子', () => {

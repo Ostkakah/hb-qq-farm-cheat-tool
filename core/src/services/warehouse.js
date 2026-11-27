@@ -866,8 +866,9 @@ async function getBagSeeds() {
 
   if (unlistedSeedIds.size > 0) {
     // 这些种子的官方配置（Plant / ItemInfo）还没同步到，只能按「未知品质」参与选种。
-    // 提示维护者去跑 sync-official-configs.js 补齐。
-    log('warehouse', `背包里有 ${unlistedSeedIds.size} 种官方配置未收录的种子（${[...unlistedSeedIds].join(',')}），已按种子参与选种；建议执行 sync-official-configs.js 补齐官方配置`, {
+    // 多数是活动限定作物：官方基础表本来就不收录它们，跑 sync-official-configs.js 也补不出来，
+    // 正确做法是按 core/src/gameConfig/EventPlants.json（活动植物增量表）登记。
+    log('warehouse', `背包里有 ${unlistedSeedIds.size} 种官方配置未收录的种子（${[...unlistedSeedIds].join(',')}），已按种子参与选种；若为活动限定作物（官方基础表不收录），请在 EventPlants.json 活动植物增量表登记`, {
       module: 'warehouse', event: 'bag_seed_detect', result: 'unlisted', count: unlistedSeedIds.size,
       seedIds: [...unlistedSeedIds],
     });
