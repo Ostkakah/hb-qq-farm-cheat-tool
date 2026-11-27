@@ -1,5 +1,5 @@
 const { ACTION_SWITCH } = require('./ranch-settings');
-const { selectCub, feedTypes, quietNow, purchasableCubs } = require('./ranch-strategy');
+const { selectCub, feedTypes, quietNow, purchasableCubs, giantCubInfo } = require('./ranch-strategy');
 const CONFIG = require('../gameConfig/RanchConfig.json');
 const stock = (items, id, usable = false) => (items || []).filter(i => String(i.id) === String(id) && (!usable || (!i.locked && !i.is_locked && !i.isLocked && !i.detail?.ranchProduct && !i.item_detail?.ranch_product))).reduce((n, i) => n + BigInt(i.count || 0), 0n);
 const cap = (...values) => Number(values.map(BigInt).reduce((a, b) => a < b ? a : b));
@@ -43,7 +43,10 @@ function assertAutomationPolicy(input, p, { state, market, exchangeEnabled = fal
         const ceiling = p.feedThresholdPercent > 0 ? Number(machine?.capacity ?? 0) : p.feedTargetCount;
         if (!machine?.feedMachine || !(ceiling > 0) || Number(machine.feedMachine.feedCount) + input.count > ceiling || stock(state.items, FEED_ITEM_ID, true) - BigInt(input.count) < BigInt(p.feedReserveCount)) reject();
     } else if (input.action === 'place') {
-        if (!p.cubItemIds.includes(String(input.itemId))) reject();
+        // 巨大化幼崽按基础品种核对白名单（白名单里存的是普通幼崽 id）
+        const giant = giantCubInfo(input.itemId);
+        const whitelistId = giant ? giant.baseItemId : String(input.itemId);
+        if (!p.cubItemIds.includes(whitelistId)) reject();
     } else if (input.action === 'buy' || input.action === 'exchange') {
         if (input.action === 'exchange' && simpleExchange) {
             if (!market || !['7002', '1008'].includes(market.costItemId) || market.price <= 0n || market.balance < market.price * BigInt(input.count)) reject();
@@ -197,6 +200,19 @@ async function runRanchExtraAutomation(ctx) {
             const inventory = (ranch.availableCubs || []).filter(c => BigInt(c.count || 0) > 0n);
             const useBag = bagPriority && inventory.length > 0;
             const strategy = bagPriority ? p.husbandryFallbackStrategy : p.husbandryStrategy;
+            const allowed = new Set(p.cubItemIds.map(String));
+
+            // 空位优先放牧背包里的巨大化幼崽：巨大化个体是图鉴「巨大化个体」的唯一来源，
+            // 商店买不到、放一只少一只，所以先占住空位；没有合适的巨大幼崽再走原策略
+            // （背包普通幼崽 / 商店购买）。品种仍受 cubItemIds 白名单约束。
+            const giantCubs = inventory.filter(c => c.giant && allowed.has(String(c.baseItemId)));
+            if (giantCubs.length) {
+                const giant = [...giantCubs]
+                    .sort((a, b) => Number(b.level || 0) - Number(a.level || 0) || Number(a.itemId) - Number(b.itemId))[0];
+                await perform({ action: 'place', ranchId: ranch.ranchInstId, itemId: giant.itemId, source: 'bag', placeSeq: Number(ranch.animalCount) || 0 });
+                continue;
+            }
+
             if (p.mode === 'simple') {
                 // simple 模式语义不变：优先从商店买（BuyGoods auto_add），仓库优先时才用背包。
                 const shop = !useBag ? await service.getResource('shop') : null;
@@ -212,7 +228,6 @@ async function runRanchExtraAutomation(ctx) {
             // 只会被放一次，栏位永远填不满。
             const shop = await service.getResource('shop');
             const purchasable = purchasableCubs(ranch, shop, goodsMap);
-            const allowed = new Set(p.cubItemIds.map(String));
             // 白名单是「允许养哪些品种」；在白名单里挑当前牧场等级养得起的最高级那档。
             // 白名单为空 → 这一轮不放（place 的策略校验同样要求 itemId 在白名单里）。
             const pool = purchasable.filter(c => allowed.has(String(c.itemId)));

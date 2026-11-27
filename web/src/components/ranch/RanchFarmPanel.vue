@@ -55,6 +55,10 @@ const feedMachines = computed<any[]>(() => (store.data?.facilities || []).filter
 const disabled = computed(() => running.value || store.busy || store.loading)
 const targets = computed(() => dialog.value === 'feed' ? feedMachines.value : ranches.value)
 const target = computed(() => targets.value.find(t => String(t.ranchInstId ?? t.instId) === targetId.value))
+// 巨大化幼崽只能从背包放（官方商店不卖），只列出背包里真有的
+const placeCubs = computed(() => (target.value?.availableCubs || []).filter((c: any) => !c.giant || Number(c.count || 0) > 0))
+const selectedCub = computed(() => placeCubs.value.find((c: any) => String(c.itemId) === cubId.value))
+const selectedCubGiant = computed(() => selectedCub.value?.giant === true)
 const canSubmit = computed(() => dialog.value === 'harvest'
   ? ranchPanelActions(store.data, 'harvest').length > 0
   : dialog.value === 'feed'
@@ -156,7 +160,13 @@ async function submit() {
   if (action === 'feed')
     await store.mutate('/api/ranch/action', { action: 'addFeed', facilityInstId: selected.instId, count: positiveRanchCount(feedCount.value) })
   else
-    await store.mutate('/api/ranch/action', { action: 'place', ranchId: selected.ranchInstId, itemId: cubId.value })
+    // 巨大化幼崽不在商店卖，只能从背包放（source: 'bag'）；普通幼崽仍是金券购买
+    await store.mutate('/api/ranch/action', {
+      action: 'place',
+      ranchId: selected.ranchInstId,
+      itemId: cubId.value,
+      ...(selectedCubGiant.value ? { source: 'bag' } : {}),
+    })
 }
 function targetsFor(action: string) {
   return action === 'feed' ? feedMachines.value : ranches.value
@@ -271,10 +281,10 @@ function targetsFor(action: string) {
       </section>
     </div>
     <RanchAnimalBubble v-if="selectedAnimal && animalAnchor" :animal="selectedAnimal" :anchor="animalAnchor" :ranch-name="selectedRanches[0]?.name || '窝棚'" @close="selectedRanchId = ''; selectedAnimalId = ''" />
-    <ConfirmModal :show="!!dialog" :title="dialog === 'harvest' ? '收获动物' : dialog === 'feed' ? '补充牧草' : '金券购买幼崽并入栏'" :message="dialog === 'harvest' ? `确认收获当前可收获的 ${ranchPanelActions(store.data, 'harvest').length} 只动物？动物将离栏回收，此操作不同于收集货架产物。` : dialog === 'place' ? '使用金券购买所选幼崽并入栏，消耗和容量由服务端校验。' : '仅补充库存牧草，不购买额外道具。'" :loading="disabled" :confirm-disabled="!canSubmit" @confirm="submit" @cancel="dialog = ''" @close="dialog = ''">
+    <ConfirmModal :show="!!dialog" :title="dialog === 'harvest' ? '收获动物' : dialog === 'feed' ? '补充牧草' : selectedCubGiant ? '放入巨大化幼崽' : '金券购买幼崽并入栏'" :message="dialog === 'harvest' ? `确认收获当前可收获的 ${ranchPanelActions(store.data, 'harvest').length} 只动物？动物将离栏回收，此操作不同于收集货架产物。` : dialog === 'place' ? (selectedCubGiant ? '从背包取出所选巨大化幼崽放入栏位，不消耗金券；栏位类型与品种需匹配。' : '使用金券购买所选幼崽并入栏，消耗和容量由服务端校验。') : '仅补充库存牧草，不购买额外道具。'" :loading="disabled" :confirm-disabled="!canSubmit" @confirm="submit" @cancel="dialog = ''" @close="dialog = ''">
       <div v-if="dialog !== 'harvest'" class="mt-4 text-left space-y-3">
         <label class="block text-sm">{{ dialog === 'feed' ? '牧草机' : '窝棚' }}<select v-model="targetId" class="mt-1 w-full border rounded-lg bg-transparent p-2"><option value="" disabled>请选择</option><option v-for="item in targets" :key="item.ranchInstId ?? item.instId" :value="String(item.ranchInstId ?? item.instId)">{{ label(item) }}</option></select></label>
-        <label v-if="dialog === 'place'" class="block text-sm">幼崽<select v-model="cubId" class="mt-1 w-full border rounded-lg bg-transparent p-2" :disabled="!target"><option value="" disabled>请选择幼崽</option><option v-for="cub in target?.availableCubs || []" :key="cub.itemId" :value="String(cub.itemId)">{{ cub.name }}</option></select></label>
+        <label v-if="dialog === 'place'" class="block text-sm">幼崽<select v-model="cubId" class="mt-1 w-full border rounded-lg bg-transparent p-2" :disabled="!target"><option value="" disabled>请选择幼崽</option><option v-for="cub in placeCubs" :key="cub.itemId" :value="String(cub.itemId)">{{ cub.name }}{{ cub.giant ? `（背包×${cub.count}）` : '' }}</option></select></label>
         <label v-else class="block text-sm">补充数量<input v-model="feedCount" type="number" min="1" step="1" class="mt-1 w-full border rounded-lg bg-transparent p-2"></label>
       </div>
     </ConfirmModal>

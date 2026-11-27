@@ -9,7 +9,7 @@ const shopConfig = require('../gameConfig/RanchShopConfig.json');
 const goodsMap = new Map(shopConfig.MCGoods.map(row => [String(row.id), row]));
 const CAPABILITIES = Object.freeze({ connect: false, disconnect: false, claimTask: true, collect: true, clean: true, place: true, produce: true, harvest: true, addFeed: true, submitOrder: true, refreshOrder: true, claimIllustrated: true, claimWeight: true, claimShare: true, claimFreeGift: true, buy: true, exchange: true, friendActions: true, sell: true, useCan: true, visitors: true, feedAnimal: true, activateFacility: true, upgradeBuilding: true, completeUpgrade: true, buildingEdit: false, landUnlock: false });
 const { SETTINGS_KEYS, ACTION_SWITCH, ALWAYS_ON, normalizePolicy, normalizeSettings } = require('./ranch-settings');
-const { feedTypes, quietNow, createRanchMaturityPlan } = require('./ranch-strategy');
+const { feedTypes, quietNow, createRanchMaturityPlan, giantCubInfo } = require('./ranch-strategy');
 const { createRanchScheduler, inGroup } = require('./ranch-scheduler');
 const { runRanchExtraAutomation, assertAutomationPolicy } = require('./ranch-automation');
 const itemMap = new Map(config.MCItemInfo.map(row => [String(row.id), row]));
@@ -91,7 +91,24 @@ function normalizeSnapshot({ cells, ranches, bag, tabs, order, orderError, serve
     const normalizedRanches = ranches.map(raw => {
         const value = camelize(raw);
         const facility = facilities.find(f => String(f.ranch?.ranchInstId) === String(value.ranchInstId));
-        return { ...value, availableCubs: config.MCAnimalConfig.filter(a => a.enable_flag === true && (value.husbandryType === 1 ? a.husbandry_type === '窝' : value.husbandryType === 2 ? a.husbandry_type === '棚' : false)).map(a => ({ itemId: a.cub_item_id, animalId: a.id, name: a.name, count: String(unlockedCount(a.cub_item_id)) })), name: facility?.name || `窝棚 ${value.ranchInstId}`,
+        // 可放入的幼崽：普通幼崽 + 官方巨大化幼崽（背包里有就报出来，自动化据此优先放巨大幼崽）
+        const ranchCubs = config.MCAnimalConfig
+            .filter(a => a.enable_flag === true && (value.husbandryType === 1 ? a.husbandry_type === '窝' : value.husbandryType === 2 ? a.husbandry_type === '棚' : false))
+            .flatMap(a => {
+                const normal = { itemId: String(a.cub_item_id), animalId: String(a.id), name: a.name, count: String(unlockedCount(a.cub_item_id)) };
+                const giant = giantCubInfo(Number(a.cub_item_id) + 5000);
+                if (!giant) return [normal];
+                return [normal, {
+                    itemId: giant.itemId,
+                    animalId: giant.animalId,
+                    baseItemId: giant.baseItemId,
+                    name: giant.name,
+                    giant: true,
+                    level: giant.level,
+                    count: String(unlockedCount(giant.itemId)),
+                }];
+            });
+        return { ...value, availableCubs: ranchCubs, name: facility?.name || `窝棚 ${value.ranchInstId}`,
             animals: (value.animals || []).map(a => ({ ...a, image: animalIcons[String(a.animalId)]?.[a.stage === 1 ? 1 : 4] || '', phaseDurationMs: Number(animalMap.get(String(a.animalId))?.[ANIMAL_PHASE_DURATION_FIELDS[a.stage]] || 0) * 1000, visual: getAnimalVisual(a.animalId, a.stage, a.mutation), stageLabel: ANIMAL_STAGE_LABELS[a.stage] || '未知', canTriggerProduce: a.stage === 3 && !a.producing && a.canDeliver === true, name: animalMap.get(String(a.animalId))?.name || `动物 ${a.animalId}` })),
             shelves: (value.shelves || []).map(s => ({ ...s, lots: (s.lots || []).map(lot => ({ ...lot, name: itemMap.get(String(lot.itemId))?.name || `物品 ${lot.itemId}` })) })),
         };
@@ -978,12 +995,15 @@ function createRanchService({ rpc, session = ranchSession, getUserState, getSett
                     reply = await mutate('CleanRanch', { host_gid: String(getUserState().gid), hazard_ids: hazards.map(h => h.hazardId) });
                 } else if (input.action === 'place') {
                     if (Number(ranch.animalCount) >= Number(ranch.capacity)) throw new Error('栏舍已满');
-                    const animal = animalMap.get(String(input.itemId));
+                    // 巨大化幼崽不是独立品种：协议里 animal_id 仍是基础品种，
+                    // 巨大幼崽本身走 giant_cub_item_id 单独指定。
+                    const giant = input.source === 'bag' ? giantCubInfo(input.itemId) : null;
+                    const animal = giant ? animalMap.get(String(giant.animalId)) : animalMap.get(String(input.itemId));
                     if (input.source === 'bag') {
                         if (!animal?.enable_flag || animal.husbandry_type !== ({ 1: '窝', 2: '棚' })[ranch.husbandryType]) throw new Error('幼崽不适合当前栏舍');
                         const count = state.items.filter(i => String(i.id) === String(input.itemId) && !i.locked).reduce((n, i) => n + BigInt(i.count || 0), 0n);
                         if (count <= 0n) throw new Error('背包幼崽不足');
-                        reply = await mutate('PlaceAnimal', { items: [{ ranch_inst_id: id, animal_id: String(animal.id) }] });
+                        reply = await mutate('PlaceAnimal', { items: [{ ranch_inst_id: id, animal_id: String(animal.id), ...(giant ? { giant_cub_item_id: String(giant.itemId) } : {}) }] });
                     } else {
                     const row = [...goodsMap.values()].find(g => g.shop_id === 5 && String(g.item_id) === String(input.itemId));
                     if (!animal?.enable_flag || animal.husbandry_type !== ({ 1: '窝', 2: '棚' })[ranch.husbandryType] || !row || row.price_id !== 1007) throw new Error('幼崽不适合当前栏舍或不支持金券购买');

@@ -1,8 +1,43 @@
 const config = require('../gameConfig/RanchConfig.json');
 const animals = new Map(config.MCAnimalConfig.map(a => [String(a.cub_item_id), a]));
 const items = new Map(config.MCItemInfo.map(i => [String(i.id), i]));
+
+// 巨大化幼崽（官方 MCItemInfo 里 type=105 的「巨大X幼崽」）：与普通幼崽是同一个品种，
+// 官方 id 规律为「普通幼崽 id + 5000」（60009 刺猬 → 65009 巨大刺猬幼崽，
+// 70006 水牛 → 75006 巨大水牛幼崽），栏舍类型跟着品种走。
+// 放牧协议 animal_PlaceAnimalItem 用 animal_id 指定品种、用 giant_cub_item_id 指定巨大幼崽，
+// 所以这里要把巨大幼崽映射回基础品种；映射只认「id 规律 + 官方名称」都对得上的条目，
+// 避免只靠 id 猜。
+const GIANT_CUB_ID_OFFSET = 5000;
+const giantCubs = new Map();
+for (const a of config.MCAnimalConfig) {
+    const itemId = Number(a.cub_item_id) + GIANT_CUB_ID_OFFSET;
+    const item = items.get(String(itemId));
+    if (!item || Number(item.type) !== 105) continue;
+    if (String(item.name || '') !== `巨大${a.name}幼崽`) continue;
+    giantCubs.set(String(itemId), {
+        itemId: String(itemId),
+        animalId: String(a.id),
+        baseItemId: String(a.cub_item_id),
+        name: item.name,
+        husbandryType: a.husbandry_type,
+        level: Number(item.level) || 0,
+    });
+}
+
+/** 取得巨大幼崽的映射信息；不是巨大幼崽则返回 null */
+function giantCubInfo(itemId) {
+    return giantCubs.get(String(itemId)) || null;
+}
+
+/** 是否是官方巨大化幼崽 */
+function isGiantCubItem(itemId) {
+    return giantCubs.has(String(itemId));
+}
+
 function cubScore(cub, strategy) {
-    const a = animals.get(String(cub.itemId));
+    // 巨大幼崽按它的基础品种算分（animalMap 用的是普通幼崽 id）
+    const a = animals.get(String(cub.itemId)) || animals.get(String(giantCubInfo(cub.itemId)?.baseItemId));
     if (!a) return -Infinity;
     const cycle = Number(a.infant_sec || 0) + Number(a.grow_sec || 0) + Number(a.mature_sec || 0) + Number(a.product_round_sec || 0) * Number(a.max_produce_count || 0);
     if (strategy === 'max_exp') return cycle > 0 ? (Number(a.harvest_exp || 0) + Number(a.produce_exp || 0) * Number(a.max_produce_count || 0)) / cycle : -Infinity;
@@ -111,4 +146,4 @@ function purchasableCubs(ranch, shop, goodsMap) {
         return [{ itemId: row.item_id, animalId: animal.id, goodsId: String(g.id), price: String(g.price), requiredLevel }];
     });
 }
-module.exports = { taskCubIds, purchasableCubs, selectCub, feedTypes, quietNow, createRanchMaturityPlan };
+module.exports = { taskCubIds, purchasableCubs, selectCub, feedTypes, quietNow, createRanchMaturityPlan, giantCubInfo, isGiantCubItem };
